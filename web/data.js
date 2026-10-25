@@ -78,6 +78,23 @@ var Prefs = (function () {
     /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
+    /** The Explore/Movies/Shows picks and their photos. Off leaves the home screen with the shelf and the panels only. */
+    picks: function () { return pick('picks', true); },
+    /** 'dock': the picks above the shelf of apps. 'list': the apps as a vertical list, the time on the right. */
+    layout: function () { return pick('layout', 'dock') === 'list' ? 'list' : 'dock'; },
+    /** 'glass': the focused app sits on a lit plate. 'type': it grows and the others fade, with no plate. */
+    focus: function () { return pick('focus', 'glass') === 'type' ? 'type' : 'glass'; },
+    /** 'photo': the first pick's photo behind the home screen. 'light'/'dark': a plain surface. */
+    background: function () {
+      var b = pick('background', 'photo');
+      return b === 'light' || b === 'dark' ? b : 'photo';
+    },
+    /** The wallpaper behind the home screen (the Photo background): one of window.WALLPAPERS' ids. */
+    wallpaper: function () {
+      var id = pick('wallpaper', ''), list = window.WALLPAPERS || [];
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) return id;
+      return list.length ? list[0].id : '';
+    },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     /** Picks per tab: 3 (as it was) up to 6. */
     cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 6 ? 6 : n; },
@@ -416,7 +433,7 @@ var Data = (function () {
   /** This hour's picks (Prefs.cards()): movies ("movie"), shows ("tv") or both (null). */
   function now(kind) {
     var list = [];
-    if (!KEY) return list;
+    if (!KEY || !Prefs.picks()) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
       if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) list.push(p);
@@ -591,7 +608,7 @@ var Data = (function () {
 
   /** Fetches the list when stale (6 h, a new period of the day, language, key or apps), then this hour's details. */
   function refreshRecs() {
-    if (!KEY || fetchingRecs || !installed.length) return;
+    if (!KEY || !Prefs.picks() || fetchingRecs || !installed.length) return;
     var t = Date.now(), p = hourPeriod(new Date()), st = sourceStamp();
     if (st === stamp && failedAt && t - failedAt < 10 * 60000 && t >= failedAt) return;
     var stale = st !== stamp || p !== period || t - listAt > 6 * 3600000 || t < listAt || !picks.length || listLang !== I18N.lang;

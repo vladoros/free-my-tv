@@ -307,6 +307,30 @@ It's your code, and Claude Code finds its way around it. Try:
 - *"Add Catalan."*
 - *"Switch to the night look an hour after sunset."*
 
+## The `tweaks` branch
+
+This fork ([vladoros/free-my-tv](https://github.com/vladoros/free-my-tv)) has a `tweaks` branch with a quieter home screen, closer to [CleanFrame](https://github.com/nthnclrk/CleanFrame). The Android app is untouched: everything here is in the LG and Samsung web app ([`web/`](web)), so you build and install it exactly as above.
+
+```bash
+git clone git@github.com:vladoros/free-my-tv.git && cd free-my-tv && git checkout tweaks
+```
+
+What it adds, in *Home Settings* (the gear button at the top right):
+
+| Row | Values | What it does |
+|---|---|---|
+| Movies and shows | on / off | Off hides the picks, their heading and the Explore/Movies/Shows tabs, and stops the TMDB requests. The clock, the shelf, the weather and the prices stay. |
+| Layout | Dock / List | Dock is the home screen as described above. List shows the shelf's apps as big rows down the left with the time on the right, and no picks. |
+| Focus | Glass / Type | Glass puts the focused app on a lit plate. Type has no plate: the focused app grows or slides right and the others fade. |
+| Background | Photo / Light / Dark | Photo shows the wallpaper; Light and Dark are plain surfaces, and set the light or the dark ink. |
+| Wallpaper | fifteen photos | Left and right browse them, live, in either layout. Picking one also sets Background to Photo. |
+
+The photographs are CleanFrame's own fifteen, at full size, credited in [`web/wallpapers/CREDITS.md`](web/wallpapers/CREDITS.md) (Unsplash licence). The app takes its ink from each photo's brightness, so the dark ones (*Forest mist*, *Blue peaks*, *Bridge at dusk*) switch it to light text; *Theme* still wins when you set it by hand.
+
+The same branch fixes the remote's Up button: from a pick or from the app row it now lands on the nearest tab or round button above, instead of always the first tab, so Live TV, HDMI and Settings are reachable. Items that aren't on screen are skipped, such as the tabs when the picks are off or the layout is List.
+
+The code is in [`web/home.js`](web/home.js) (the look, the settings rows, focus), [`web/data.js`](web/data.js) (the values it keeps), [`web/home.css`](web/home.css), [`web/wallpapers.js`](web/wallpapers.js) and [`web/wallpapers/`](web/wallpapers).
+
 ## How it works
 
 - **A plain Android app, no Gradle, no libraries.** [`build.sh`](build.sh) runs aapt2 → javac → d8 → zipalign → apksigner and makes a 2 MB APK.

@@ -1,0 +1,1 @@
+cd /Users/vlad/Work/free-my-tv && python3 tizen/build.py --sign freemytv && /Users/vlad/tizen-studio/tools/sdb disconnect 192.168.50.84:26101; python3 tizen/install.py 192.168.50.84

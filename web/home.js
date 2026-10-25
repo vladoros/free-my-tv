@@ -328,6 +328,7 @@
 
   function updateFocus() {
     var i, list;
+    if (st.top < topMin()) st.top = topMin();   // the tabs went away (picks off, List layout)
     list = $('tabs').children;
     for (i = 0; i < list.length; i++) {
       setClass(list[i], 'on', i === st.tab);
@@ -382,6 +383,25 @@
     return (r.left + r.right) / 2;
   }
 
+  /** The top row, as it is on screen: the tabs (Explore/Movies/Shows), then the round buttons. */
+  function topNodes() {
+    var out = [], tabs = $('tabs').children, buttons = $('buttons').children, i;
+    for (i = 0; i < tabs.length; i++) out.push(tabs[i]);
+    for (i = 0; i < buttons.length; i++) out.push(buttons[i]);
+    return out;
+  }
+
+  /** The first item in the top row: 0 when the tabs are there, 3 (Live TV) when they're hidden (picks off or List). */
+  function topMin() {
+    return Data.hasKey() && Prefs.picks() && Prefs.layout() !== 'list' ? 0 : 3;
+  }
+
+  /** What Up lands on: the tab or round button above this item, or Live TV when the tabs aren't there. */
+  function topAbove(node) {
+    var min = topMin();
+    return min ? min : nearest(topNodes(), centerX(node));
+  }
+
   // MARK: - Top: title, tabs, buttons, quotes
 
   var TAB_KIND = [null, 'movie', 'tv'];
@@ -419,12 +439,56 @@
 
   // MARK: - Picks and background
 
+  // MARK: - Look: layout, focus, background, wallpaper (Home Settings)
+
+  /** The wallpaper in use: its entry in window.WALLPAPERS, or null when the build has none. */
+  function wallpaper() {
+    var list = window.WALLPAPERS || [], id = Prefs.wallpaper();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  /** Points #wall at the chosen photo (a background-image it already has is left alone). */
+  function showWallpaper() {
+    var w = wallpaper(), wall = $('wall');
+    if (!w) return;
+    if (wall.getAttribute('data-wall') !== w.id) {
+      wall.setAttribute('data-wall', w.id);
+      wall.style.backgroundImage = 'url(' + w.file + ')';
+      wall.style.backgroundPosition = w.pos;
+    }
+  }
+
+  /** The stage's look: Dock or List, Glass or Type focus, Photo (a wallpaper)/Light/Dark background. */
+  function applyLook() {
+    var layout = Prefs.layout(), bg = Prefs.background(), type = Prefs.focus() === 'type';
+    var photo = bg === 'photo' && !!wallpaper();
+    if (photo) showWallpaper();
+    setClass(body, 'layout-list', layout === 'list');
+    setClass(body, 'layout-dock', layout !== 'list');
+    setClass(body, 'focus-type', type);
+    setClass(body, 'focus-glass', !type);
+    setClass(body, 'photo-wall', photo);
+    setClass(body, 'bg-photo', bg === 'photo');
+    setClass(body, 'bg-light', bg === 'light');
+    setClass(body, 'bg-dark', bg === 'dark');
+  }
+
   function renderCards() {
     var list = Data.picks(TAB_KIND[st.tab]);
-    var holder = $('cards');
-    setClass(body, 'no-picks', !list.length);
+    var holder = $('cards'), asList = Prefs.layout() === 'list';
+    setClass(body, 'no-picks', asList || !list.length);
+    setClass(body, 'picks-off', asList || !Prefs.picks());
     setClass(body, 'no-key', !Data.hasKey());   // as on Android: no title or tabs that could never show anything
-    if (!Data.hasKey() && st.zone === Z.TOP && st.top < 3) st.top = 3;
+    if (topMin() && st.zone === Z.TOP && st.top < 3) st.top = 3;
+    if (asList) {
+      // The List layout is the apps and the time: no picks, but the photo stays behind them.
+      cards = [];
+      if (holder.children.length) holder.innerHTML = '';
+      if (st.zone === Z.CARDS) st.zone = Z.SHELF;
+      backdrop('');   // the photo behind the home screen is the wallpaper (#wall), not a pick's still
+      return;
+    }
     var same = list.length === cards.length;
     for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
     if (same && holder.children.length === list.length) return;
@@ -443,7 +507,7 @@
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
-    backdrop(list.length ? Data.image(list[st.card].backdrop, 'w300') : '');
+    backdrop('');
     updateFocus();
   }
 
@@ -521,6 +585,7 @@
   var shelfFirst = 0, tileStep = 0, tileLeft = 0;
 
   function renderShelf() {
+    if (Prefs.layout() === 'list') { renderList(); return; }
     var n = Math.min(shelf.length, SHELF_VISIBLE), gap = 48, pad = 40;
     // 16:9 tiles, as on Android: never taller than 126, and the glass keeps its bottom edge.
     var tw = Math.min(126 * 16 / 9, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n)), th = tw * 9 / 16;
@@ -575,11 +640,48 @@
 
   /** Scrolls the shelf, one app at a time, so the focused app is shown. */
   function revealShelf() {
+    if (Prefs.layout() === 'list') { placeList(); return; }
     var n = Math.min(shelf.length, SHELF_VISIBLE);
     var first = Math.max(0, Math.min(Math.max(shelfFirst, st.shelf - n + 1), Math.min(st.shelf, shelf.length - n)));
     if (first === shelfFirst || !shelf.length) return;
     shelfFirst = first;
     placeTiles();
+  }
+
+  // MARK: - List layout: the same shelf apps as rows, the time on the right, no picks
+
+  var LIST_VISIBLE = 6, LIST_H = 104, LIST_GAP = 14, listFirst = 0;
+
+  function renderList() {
+    var platter = $('platter');
+    platter.style.display = 'none';
+    platter.innerHTML = '';
+    $('quotes').style.right = '80px';
+    var tiles = $('tiles'), left = 112, top = 148;
+    tiles.innerHTML = '';
+    tileStep = LIST_H + LIST_GAP;
+    tileLeft = left;
+    for (var i = 0; i < shelf.length; i++) {
+      var t = el('div', 'tile', tiles);
+      t.style.left = left + 'px';
+      t.style.top = (top + i * tileStep) + 'px';
+      t.style.width = '1040px';
+      t.style.height = LIST_H + 'px';
+      face(shelf[i], el('div', 'appicon', t), 20);
+      el('div', 'name', t, shelf[i].title);
+      hover(t, Z.SHELF, i);
+    }
+    st.shelf = Math.min(st.shelf, Math.max(0, shelf.length - 1));
+    placeList();
+  }
+
+  /** Scrolls the list (a transform on #tiles) so the focused app is shown, and back up when it moves up. */
+  function placeList() {
+    var n = Math.min(shelf.length, LIST_VISIBLE), maxFirst = Math.max(0, shelf.length - n);
+    var first = Math.max(0, Math.min(Math.max(listFirst, st.shelf - n + 1), st.shelf, maxFirst));
+    listFirst = first;
+    var row = $('tiles');
+    row.style.webkitTransform = row.style.transform = 'translateY(' + (-first * tileStep) + 'px)';
   }
 
   // MARK: - Drawer
@@ -765,12 +867,23 @@
         step: function () { Prefs.set('hideAnimation', !Prefs.hideAnimation()); Data.refresh(); }},
       {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
         step: function () { Prefs.set('saverWatch', !Prefs.saverWatch()); }},
+      {label: tr('Layout'), value: Prefs.layout() === 'list' ? tr('List') : tr('Dock'),
+        step: function (d) { cycle('layout', ['dock', 'list'], Prefs.layout(), d); renderAll(); }},
+      {label: tr('Focus'), value: Prefs.focus() === 'type' ? tr('Type') : tr('Glass'),
+        step: function (d) { cycle('focus', ['glass', 'type'], Prefs.focus(), d); renderAll(); }},
+      {label: tr('Background'), value: Prefs.background() === 'light' ? tr('Light')
+        : Prefs.background() === 'dark' ? tr('Dark') : tr('Photo'),
+        step: function (d) { cycle('background', ['photo', 'light', 'dark'], Prefs.background(), d); applyLook(); renderAll(); }},
+      {label: tr('Wallpaper'), value: wallpaper() ? wallpaper().name : '',
+        step: function (d) { stepWallpaper(d); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
       {label: tr('City'), value: Prefs.city() || '—', opens: true, city: true,
         step: function (d) { if (d >= 0) openCities(); }},
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
+      {label: tr('Movies and shows'), toggle: Prefs.picks(),
+        step: function () { Prefs.set('picks', !Prefs.picks()); renderAll(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
     ];
@@ -811,6 +924,19 @@
   function cycle(name, values, current, d) {
     var i = values.indexOf(current);
     Prefs.set(name, values[(i + (d || 1) + values.length) % values.length]);
+  }
+
+  /** Left/Right on the Wallpaper row: the previous or next photo, and the Photo background to see it. */
+  function stepWallpaper(d) {
+    var list = window.WALLPAPERS || [], i = 0;
+    if (!list.length || !d) return;
+    var id = Prefs.wallpaper();
+    for (var k = 0; k < list.length; k++) if (list[k].id === id) i = k;
+    i = (i + d + list.length) % list.length;
+    Prefs.set('wallpaper', list[i].id);
+    Prefs.set('background', 'photo');
+    applyLook();
+    checkNight();
   }
 
   var rowsNow = [];
@@ -1340,24 +1466,33 @@
     var tiles = $('tiles').children, cardNodes = $('cards').children;
     switch (st.zone) {
       case Z.SHELF:
+        if (Prefs.layout() === 'list') {
+          // List: Up/Down the apps, Right to the round buttons, Down past the last one to the drawer.
+          if (dy) {
+            if (dy > 0 && st.shelf >= shelf.length - 1) { openDrawer(); return; }
+            if (dy < 0 && st.shelf <= 0) { st.zone = Z.TOP; st.top = 3; break; }
+            st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dy));
+          } else if (dx > 0) { st.zone = Z.TOP; st.top = 3; }
+          break;
+        }
         if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
-          else { st.zone = Z.TOP; st.top = Data.hasKey() ? st.tab : 3; }
+          else { st.zone = Z.TOP; st.top = topAbove(tiles[st.shelf]); }
         }
         break;
       case Z.CARDS:
         if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
-        else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
+        else if (dy < 0) { st.zone = Z.TOP; st.top = topAbove(cardNodes[st.card]); }
         else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(5, st.top + dx));   // without the picks the tabs can't hold focus
+          st.top = Math.max(topMin(), Math.min(5, st.top + dx));
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
+          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(topNodes()[st.top])); }
           else st.zone = Z.SHELF;
         }
         break;
@@ -1417,7 +1552,7 @@
       if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
-      if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
+      if (zone === Z.TOP && index < topMin()) return;   // the tabs are hidden without the picks
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
       st.zone = zone;
       if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
@@ -1451,7 +1586,11 @@
   var lastNight = null;
 
   function checkNight() {
-    var night = Data.isNight(Date.now());
+    var bg = Prefs.background(), theme = Prefs.theme(), w = bg === 'photo' ? wallpaper() : null;
+    // Dark/Light background wins, then an explicit Theme, then the wallpaper's own brightness, then the clock.
+    var night = bg === 'dark' ? true : bg === 'light' ? false
+      : theme === 'dark' ? true : theme === 'light' ? false
+      : w ? w.tone === 'dark' : Data.isNight(Date.now());
     setClass(body, 'night', night);
     if (night === lastNight) return;
     lastNight = night;
@@ -1623,6 +1762,7 @@
   // MARK: - Start
 
   function renderAll() {
+    applyLook();
     renderTop();
     renderQuotes();
     cards = [];
