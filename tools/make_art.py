@@ -82,6 +82,17 @@ def font(px, weight=600):
     return f
 
 
+def tizen_mark(size=512):
+    """The Samsung app icon: a full-bleed square, because the TV rounds the corners itself, with the mark inset.
+
+    The website icon (mark) keeps transparent corners: Samsung's launcher masks it again and clips them.
+    """
+    img = gradient(size, size).convert("RGBA")
+    m = mark(int(size * 0.88), bg=False)
+    img.alpha_composite(m, ((size - m.width) // 2, (size - m.height) // 2))
+    return img.convert("RGB")
+
+
 def banner(w=640, h=360):
     s = 4
     img = gradient(w * s, h * s, angle=20).convert("RGBA")
@@ -109,4 +120,5 @@ if __name__ == "__main__":
     mark(512).save(os.path.join(site, "icon-512.png"))
     mark(180).save(os.path.join(site, "apple-touch-icon.png"))
     mark(64).save(os.path.join(site, "favicon-64.png"))
+    tizen_mark(512).save(os.path.join(ROOT, "tizen", "icon.png"))
     print("ok")

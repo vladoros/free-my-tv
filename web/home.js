@@ -320,11 +320,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', LEAVE: 'leave', WALL: 'wall'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, leave: 0, wall: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.LEAVE || st.zone === Z.WALL; }
 
   function updateFocus() {
     var i, list;
@@ -352,6 +352,8 @@
     focusRows($('settings'), st.row, st.zone === Z.SETTINGS);
     focusRows($('shelfedit'), st.edit, st.zone === Z.EDIT);
     focusRows($('langpick'), st.lang, st.zone === Z.LANG);
+    focusRows($('leavepick'), st.leave, st.zone === Z.LEAVE);
+    focusRows($('wallpick'), st.wall, st.zone === Z.WALL);
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
@@ -420,11 +422,11 @@
     var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
     for (var b = 0; b < 3; b++) {
       var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
-      r.style.left = (1596 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
     }
+    placeButtons();
   }
 
   function renderQuotes() {
@@ -472,6 +474,31 @@
     setClass(body, 'bg-photo', bg === 'photo');
     setClass(body, 'bg-light', bg === 'light');
     setClass(body, 'bg-dark', bg === 'dark');
+    // The apps' and the buttons' labels, the plate's material (only over a photo, in Glass) and the clock's font.
+    setClass(body, 'apps-icons', Prefs.apps() === 'icons');
+    setClass(body, 'apps-both', Prefs.apps() === 'both');
+    setClass(body, 'apps-text', Prefs.apps() === 'text');
+    setClass(body, 'controls-icons', Prefs.controls() === 'icons');
+    setClass(body, 'controls-both', Prefs.controls() === 'both');
+    setClass(body, 'controls-text', Prefs.controls() === 'text');
+    setClass(body, 'mat-soft', photo && !type && Prefs.material() === 'soft');
+    setClass(body, 'mat-frost', photo && !type && Prefs.material() === 'frost');
+    setClass(body, 'mat-tint', photo && !type && Prefs.material() === 'tint');
+    setClass(body, 'clock-manrope', Prefs.clockFont() === 'manrope');
+    setClass(body, 'clock-geist', Prefs.clockFont() === 'geist');
+    setClass(body, 'clock-newsreader', Prefs.clockFont() === 'newsreader');
+    placeButtons();
+  }
+
+  /** Lines the round buttons up so the last one ends at the margin: text buttons are wider than the circles. */
+  function placeButtons() {
+    var list = $('buttons').children, gap = body.className.indexOf('controls-both') >= 0 ? 60 : 20, total = 0, i;
+    for (i = 0; i < list.length; i++) total += list[i].offsetWidth + (i ? gap : 0);
+    var x = 1840 - total;
+    for (i = 0; i < list.length; i++) {
+      list[i].style.left = x + 'px';
+      x += list[i].offsetWidth + gap;
+    }
   }
 
   function renderCards() {
@@ -608,6 +635,7 @@
       t.style.width = tw + 'px';
       t.style.height = th + 'px';
       face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
+      if (Prefs.apps() !== 'icons') el('div', 'app-label', t, shelf[i].title);
       hover(t, Z.SHELF, i);
     }
     // More apps than fit: a small arrow inside the glass's edge on each side that has more, where no tile reaches
@@ -682,6 +710,8 @@
     listFirst = first;
     var row = $('tiles');
     row.style.webkitTransform = row.style.transform = 'translateY(' + (-first * tileStep) + 'px)';
+    setClass($('tilesview'), 'fade-top', first > 0);
+    setClass($('tilesview'), 'fade-bottom', first < maxFirst);
   }
 
   // MARK: - Drawer
@@ -840,6 +870,9 @@
     closeField('keypick');
     setClass($('citypick'), 'open', false);
     setClass($('keypick'), 'open', false);
+    setClass($('leavepick'), 'open', false);
+    if (st.zone === Z.WALL) cancelWallpaper(true);
+    setClass($('wallpick'), 'open', false);
     langHint = null;
     st.zone = Z.SHELF;
     updateFocus();
@@ -871,11 +904,22 @@
         step: function (d) { cycle('layout', ['dock', 'list'], Prefs.layout(), d); renderAll(); }},
       {label: tr('Focus'), value: Prefs.focus() === 'type' ? tr('Type') : tr('Glass'),
         step: function (d) { cycle('focus', ['glass', 'type'], Prefs.focus(), d); renderAll(); }},
+      {label: tr('Material'), value: valueName(Prefs.material()),
+        dim: !materialApplies(),
+        step: function (d) { cycle('material', ['soft', 'frost', 'tint'], Prefs.material(), d); applyLook(); }},
       {label: tr('Background'), value: Prefs.background() === 'light' ? tr('Light')
         : Prefs.background() === 'dark' ? tr('Dark') : tr('Photo'),
         step: function (d) { cycle('background', ['photo', 'light', 'dark'], Prefs.background(), d); applyLook(); renderAll(); }},
-      {label: tr('Wallpaper'), value: wallpaper() ? wallpaper().name : '',
-        step: function (d) { stepWallpaper(d); }},
+      {label: tr('Wallpaper'), value: wallpaper() ? wallpaper().name : '', opens: true, wallpaper: true,
+        step: function (d) { if (d >= 0) openWallpapers(); }},
+      {label: tr('Rotation'), value: valueName(Prefs.rotation()),
+        step: function (d) { cycle('rotation', ['off', 'open', 'five', 'quarter', 'hourly', 'daily'], Prefs.rotation(), d); }},
+      {label: tr('Apps'), value: valueName(Prefs.apps()),
+        step: function (d) { cycle('apps', ['icons', 'both', 'text'], Prefs.apps(), d); renderAll(); }},
+      {label: tr('Home controls'), value: valueName(Prefs.controls()),
+        step: function (d) { cycle('controls', ['icons', 'both', 'text'], Prefs.controls(), d); applyLook(); }},
+      {label: tr('Font'), value: clockFontName(Prefs.clockFont()),
+        step: function (d) { cycle('clockFont', ['inter', 'manrope', 'geist', 'newsreader'], Prefs.clockFont(), d); applyLook(); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
       {label: tr('City'), value: Prefs.city() || '—', opens: true, city: true,
@@ -926,17 +970,46 @@
     Prefs.set(name, values[(i + (d || 1) + values.length) % values.length]);
   }
 
+  /** The names of the settings' values, as CleanFrame has them (Icons and text, Clear tint...). */
+  function valueName(value) {
+    var names = {soft: tr('Soft'), frost: tr('Frost'), tint: tr('Clear tint'), icons: tr('Icons'),
+      both: tr('Icons and text'), text: tr('Text'), off: tr('Off'), daily: tr('Daily'), hourly: tr('Hourly'),
+      open: tr('Each time Home opens'), five: tr('Every 5 minutes'), quarter: tr('Every 15 minutes')};
+    return names[value] || value;
+  }
+
+  /** Font names are the same in every language, so the clock's three aren't translated. */
+  function clockFontName(id) { return id === 'manrope' ? 'Manrope' : id === 'geist' ? 'Geist' : id === 'newsreader' ? 'Newsreader' : 'Inter'; }
+
+  /** Material shows on the focused plate: with a wallpaper behind and the Glass focus (the Type focus has no plate). */
+  function materialApplies() {
+    return Prefs.background() === 'photo' && Prefs.focus() === 'glass' && !!wallpaper();
+  }
+
   /** Left/Right on the Wallpaper row: the previous or next photo, and the Photo background to see it. */
-  function stepWallpaper(d) {
+  function stepWallpaper(d, auto) {
     var list = window.WALLPAPERS || [], i = 0;
     if (!list.length || !d) return;
     var id = Prefs.wallpaper();
     for (var k = 0; k < list.length; k++) if (list[k].id === id) i = k;
     i = (i + d + list.length) % list.length;
     Prefs.set('wallpaper', list[i].id);
-    Prefs.set('background', 'photo');
+    Prefs.set('wallpaperAt', Date.now());
+    if (!auto) Prefs.set('background', 'photo');   // a photo picked by hand shows itself
     applyLook();
     checkNight();
+  }
+
+  var ROTATION_MS = {five: 5 * 60 * 1000, quarter: 15 * 60 * 1000, hourly: 60 * 60 * 1000, daily: 24 * 60 * 60 * 1000};
+
+  /** Rotation: the next wallpaper once a day or once an hour, while a wallpaper is showing (as CleanFrame pauses it). */
+  function checkRotation() {
+    var ms = ROTATION_MS[Prefs.rotation()];
+    if (!ms) return;
+    var at = Prefs.wallpaperAt();
+    if (!at) { Prefs.set('wallpaperAt', Date.now()); return; }
+    if (Prefs.background() !== 'photo' || Date.now() - at < ms) return;
+    stepWallpaper(1, true);
   }
 
   var rowsNow = [];
@@ -1310,15 +1383,115 @@
     updateFocus();
   }
 
+  // MARK: - Wallpaper: the photos in a list, the home screen behind shows the one under the focus
+
+  var wallTimer = 0;
+
+  function renderWallpapers() {
+    var box = $('wallpick').firstChild, list = window.WALLPAPERS || [];
+    box.innerHTML = '';
+    el('div', 'title', box, tr('Wallpaper'));
+    var view = el('div', 'list', box), holder = el('div', 'rows', view);
+    view.style.height = Math.min(list.length, 7) * 78 + 'px';
+    for (var i = 0; i < list.length; i++) {
+      var row = el('div', 'row', holder, list[i].name);
+      if (list[i].id === Prefs.wallpaper()) sym('check', el('span', 'value', row));
+      hover(row, Z.WALL, i);
+    }
+    el('div', 'hint', box, tr('OK sets the wallpaper. Back keeps the last one.'));
+    updateFocus();
+  }
+
+  function openWallpapers() {
+    var list = window.WALLPAPERS || [];
+    if (!list.length) return;
+    setClass($('settings'), 'open', false);
+    st.zone = Z.WALL;
+    st.wall = 0;
+    for (var i = 0; i < list.length; i++) if (list[i].id === Prefs.wallpaper()) st.wall = i;
+    renderWallpapers();
+    setClass($('wallpick'), 'open', true);
+    updateFocus();
+  }
+
+  /** The photo under the focus on the home screen itself (nothing is saved); a moment after the focus settles. */
+  function previewWallpaper() {
+    clearTimeout(wallTimer);
+    wallTimer = setTimeout(function () {
+      var w = (window.WALLPAPERS || [])[st.wall], theme = Prefs.theme();
+      if (!w || st.zone !== Z.WALL) return;
+      var wall = $('wall');
+      wall.setAttribute('data-wall', w.id);
+      wall.style.backgroundImage = 'url(' + w.file + ')';
+      wall.style.backgroundPosition = w.pos;
+      setClass(body, 'photo-wall', true);
+      setClass(body, 'bg-photo', true);
+      setClass(body, 'bg-light', false);
+      setClass(body, 'bg-dark', false);
+      setClass(body, 'night', theme === 'dark' ? true : theme === 'light' ? false : w.tone === 'dark');
+    }, 180);
+  }
+
+  /** OK: the photo under the focus becomes the wallpaper (and the Photo background); the list stays open. */
+  function applyWallpaper() {
+    var w = (window.WALLPAPERS || [])[st.wall];
+    if (!w) return;
+    clearTimeout(wallTimer);
+    if (w.id !== Prefs.wallpaper() || Prefs.background() !== 'photo') {
+      Prefs.set('wallpaper', w.id);
+      Prefs.set('wallpaperAt', Date.now());
+      Prefs.set('background', 'photo');
+    }
+    applyLook();
+    checkNight();
+    renderWallpapers();
+  }
+
+  /** Back (or any other way out): the saved look comes back; `stay` leaves the zone to the caller. */
+  function cancelWallpaper(stay) {
+    clearTimeout(wallTimer);
+    applyLook();
+    checkNight();
+    if (stay) return;
+    setClass($('wallpick'), 'open', false);
+    openSettings();
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].wallpaper) st.row = i;
+    updateFocus();
+  }
+
+  // MARK: - Leave Home (Samsung): Back on the first screen asks before going out to Samsung's own Home
+
+  function openLeave() {
+    var box = $('leavepick').firstChild;
+    box.innerHTML = '';
+    el('div', 'title', box, tr('Leave Home?'));
+    var list = el('div', 'list', box), holder = el('div', 'rows', list), names = [tr('Stay'), tr('Samsung Home')];
+    list.style.height = names.length * 78 + 'px';
+    for (var i = 0; i < names.length; i++) hover(el('div', 'row', holder, names[i]), Z.LEAVE, i);
+    st.zone = Z.LEAVE;
+    st.leave = 0;
+    setClass($('leavepick'), 'open', true);
+    updateFocus();
+  }
+
   // MARK: - Shelf editor: which apps, in what order
 
   function editList() {
     var ids = shelf.map(function (a) { return a.id; });
+    // on the shelf in order, then the apps taken off in this session (the last one first), then the rest by name
+    function rank(id) { var i = ids.indexOf(id); return i >= 0 ? i : removedAt(id) >= 0 ? 100 + removedAt(id) : 1000; }
     return {ids: ids, rows: apps.slice().sort(function (a, b) {
-      var ia = ids.indexOf(a.id), ib = ids.indexOf(b.id);
-      if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-      return a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1;
+      var d = rank(a.id) - rank(b.id);
+      return d || (a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1);
     })};
+  }
+
+  var MAX_SHELF = 9;
+  var undoLog = [], removedLog = [];   // this visit to the editor: what to undo, and where taken-off apps were
+
+  function removedAt(id) {
+    for (var i = 0; i < removedLog.length; i++) if (removedLog[i].id === id) return i;
+    return -1;
   }
 
   function renderShelfEdit() {
@@ -1333,8 +1506,13 @@
       var a = e.rows[i], at = e.ids.indexOf(a.id), row = el('div', 'row', holder, a.title);
       var place = el('span', 'value', row, at >= 0 ? '#' + (at + 1) : tr('shelf|Off'));
       if (at >= 0) sym('check', place).style.marginLeft = '16px';   // on the shelf: a check, as in the pickers
+      else if (removedAt(a.id) >= 0) place.textContent = tr('Recently removed');
       hover(row, Z.EDIT, i);
     }
+    var last = undoLog[undoLog.length - 1];
+    var undo = el('div', 'row' + (last ? '' : ' dim'), holder, tr('Undo'));
+    if (last) el('span', 'value', undo, last.name);
+    hover(undo, Z.EDIT, e.rows.length);
     el('div', 'hint', box, tr('OK adds or removes an app. ← → change the order.'));
     updateFocus();
   }
@@ -1343,6 +1521,8 @@
     setClass($('settings'), 'open', false);
     st.zone = Z.EDIT;
     st.edit = 0;
+    undoLog = [];
+    removedLog = [];
     renderShelfEdit();
     setClass($('shelfedit'), 'open', true);
     updateFocus();
@@ -1350,22 +1530,46 @@
 
   function editShelf(dx) {
     var e = editList(), app = e.rows[st.edit];
-    if (!app) return;
-    var ids = e.ids.slice(), at = ids.indexOf(app.id);
+    if (!app) { if (dx === 0) undoShelf(); return; }   // the row after the apps is Undo
+    var ids = e.ids.slice(), at = ids.indexOf(app.id), was = removedLog.slice();
     if (dx === 0) {
-      if (at >= 0) ids.splice(at, 1);
-      else ids.push(app.id);
+      if (at >= 0) {
+        if (ids.length <= 1) { toast(tr('The shelf needs at least one app.')); return; }
+        ids.splice(at, 1);
+        removedLog.unshift({id: app.id, at: at});
+      } else {
+        if (ids.length >= MAX_SHELF) { toast(tr('The shelf holds up to 9 apps.')); return; }
+        var r = removedAt(app.id);
+        if (r >= 0) { ids.splice(Math.min(removedLog[r].at, ids.length), 0, app.id); removedLog.splice(r, 1); }   // back where it was
+        else ids.push(app.id);
+      }
     } else {
       if (at < 0) return;
       var to = Math.max(0, Math.min(ids.length - 1, at + dx));
+      if (to === at) return;
       ids.splice(at, 1);
       ids.splice(to, 0, app.id);
     }
+    undoLog.push({ids: e.ids, removed: was, name: app.title});
+    saveShelf(ids, app.id);
+  }
+
+  function undoShelf() {
+    var last = undoLog.pop();
+    if (!last) return;
+    removedLog = last.removed;
+    saveShelf(last.ids, '');
+  }
+
+  /** The shelf as these ids, everywhere it shows; the focus follows `follow` (an app id), or stays where it is. */
+  function saveShelf(ids, follow) {
     Prefs.set('shelf', ids);
     pickShelf();
+    Data.setApps(shelf);
     renderShelf();
+    renderCards();
     var again = editList();
-    for (var i = 0; i < again.rows.length; i++) if (again.rows[i].id === app.id) st.edit = i;
+    for (var i = 0; follow && i < again.rows.length; i++) if (again.rows[i].id === follow) st.edit = i;
     renderShelfEdit();
   }
 
@@ -1446,6 +1650,13 @@
       case Z.ABOUT:
         closeAbout();
         return;
+      case Z.WALL:
+        applyWallpaper();
+        return;
+      case Z.LEAVE:
+        closeSheets();
+        if (st.leave === 1) TV.openHome(function (ok) { if (!ok) toast(tr("Couldn't open Samsung Home")); });
+        return;
     }
   }
 
@@ -1512,7 +1723,7 @@
         }
         break;
       case Z.EDIT:
-        if (dy) st.edit = Math.max(0, Math.min(apps.length - 1, st.edit + dy));
+        if (dy) st.edit = Math.max(0, Math.min(apps.length, st.edit + dy));
         else if (dx) editShelf(dx);
         break;
       case Z.LANG:
@@ -1523,6 +1734,12 @@
         break;
       case Z.KEY:
         if (dy) st.key = Math.max(0, Math.min(keyRows() - 1, st.key + dy));
+        break;
+      case Z.WALL:
+        if (dy) { st.wall = Math.max(0, Math.min((window.WALLPAPERS || []).length - 1, st.wall + dy)); previewWallpaper(); }
+        break;
+      case Z.LEAVE:
+        if (dy) st.leave = Math.max(0, Math.min(1, st.leave + dy));
         break;
     }
     updateFocus();
@@ -1540,16 +1757,18 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.WALL) { cancelWallpaper(false); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
+    if (TV.hasHome()) { openLeave(); return; }
     TV.back();
   }
 
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.LEAVE || zone === Z.WALL))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < topMin()) return;   // the tabs are hidden without the picks
@@ -1565,6 +1784,8 @@
       else if (zone === Z.LANG) st.lang = index;
       else if (zone === Z.CITY) st.city = index;
       else if (zone === Z.KEY) st.key = index;
+      else if (zone === Z.LEAVE) st.leave = index;
+      else if (zone === Z.WALL) { st.wall = index; previewWallpaper(); }
       updateFocus();
     };
     node.onclick = function () { node.onmouseover(); activate(); };
@@ -1622,9 +1843,21 @@
     $('dim').className = 'layer' + (level ? ' d' + level : '');
   }
 
-  /** The screensaver's photos: picks with an app on the TV. */
+  /** The screensaver's photos: the picks with an app on the TV, or the wallpapers when there are no picks. */
   function saverPhotos() {
-    return Data.showcase().filter(function (p) { return p.backdrop && Data.usable(p.app); });
+    var out = [], picks = Data.showcase(), i;
+    for (i = 0; i < picks.length; i++) {
+      if (picks[i].backdrop && Data.usable(picks[i].app)) out.push({src: Data.image(picks[i].backdrop, 'original'), title: picks[i].title, app: picks[i].app});
+    }
+    if (out.length) return out;
+    // With the picks off (or no TMDB key), the wallpapers: from the chosen one, then the rest of the gallery.
+    var walls = window.WALLPAPERS || [], at = 0;
+    for (i = 0; i < walls.length; i++) if (walls[i].id === Prefs.wallpaper()) at = i;
+    for (i = 0; i < walls.length; i++) {
+      var w = walls[(at + i) % walls.length];
+      out.push({src: w.file, title: w.name});
+    }
+    return out;
   }
 
   function showSaver() {
@@ -1646,7 +1879,7 @@
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
+        back.style.backgroundImage = 'url(' + p.src + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
         clock.children[2].textContent = p.title;
         saverPick = p;
@@ -1731,8 +1964,19 @@
 
   // MARK: - Keys
 
+  var held = {};   // OK and Back act once per press: a held key doesn't launch, or close, again
+  document.addEventListener('keyup', function (e) { held[e.keyCode] = false; });
+  // Launching an app swallows the key's release: forget the held keys when the app is left or comes back.
+  function letGo() { held = {}; }
+  document.addEventListener('visibilitychange', letGo);
+  window.addEventListener('focus', letGo);
+  window.addEventListener('blur', letGo);
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;
+    if (k === TV.keys.ok || k === TV.keys.back || k === 27 || k === 8) {
+      if (e.repeat || held[k]) { e.preventDefault(); return; }
+      held[k] = true;
+    }
     if (poke(k === TV.keys.ok)) { e.preventDefault(); return; }   // the first press only wakes the screen (or OK watches)
     if (typing(k)) return;
     if (k === TV.keys.left) move(-1, 0);
@@ -1786,8 +2030,8 @@
   function loadApps(done) {
     TV.apps(function (list) {
       apps = list.filter(function (a) { return !hidden(a); });
-      Data.setApps(apps);
       pickShelf();
+      Data.setApps(shelf);
       TV.inputs(function (list2) {
         inputs = list2;
         if (done) done();
@@ -1840,6 +2084,7 @@
   });
 
   I18N.set(Prefs.language());
+  applyLook();    // the wallpaper and the look before the TV's app list comes back
   checkNight();   // now, from the last forecast: not after the TV lists its apps, with the day look until then
   // LG's screensaver waits only when ours will show: not under a sheet (ours waits there), and not without photos.
   TV.holdScreenSaver(function () { return !sheetOpen() && (saverMode() === 'clock' || saverPhotos().length > 0); });
@@ -1847,6 +2092,7 @@
   renderTop();
   applyDim();
   tickClock();
+  if (Prefs.rotation() === 'open') stepWallpaper(1, true);   // Home just opened
   loadApps(function () {
     renderAll();
     restInDrawer();
@@ -1854,6 +2100,7 @@
   });
   setInterval(function () {
     checkNight();
+    checkRotation();
     Data.refresh();
     applyDim();   // automatic: medium from 22:00, off again at 07:00
     if (!saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {

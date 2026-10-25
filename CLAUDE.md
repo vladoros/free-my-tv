@@ -571,7 +571,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   control, and `org.tizen.menu` froze 2017 and 2018 TVs (Tizen 3 and 4, #257), so TV Settings only shows from
   Tizen 5 (`TV.canOpenSettings`).
   `web/home.js` follows `HomeView`'s layout and behavior, so a design change on
-  Android belongs there too. Text: the same catalogues as Android, packed into `i18n.js` by `tools/webapp.py` (only
+  Android belongs there too (the `tweaks` look settings, Font, the wallpaper picker and the shelf editor's Undo, exist only in `web/`).
+  The picks come only from the apps on the shelf (`Data.setApps(shelf)`), each service fetched on its own so every app has a share;
+  Plex and YouTube are `SERVICES` entries flagged free-with-ads (their free titles count, with no release window). The web app
+  has no title links: Netflix on Tizen 5 ignored the `PAYLOAD` meta tag and a search address, so a pick opens its app's home.
+  OK and Back act once per press (`held` in `home.js`, cleared when the app is left: launching an app swallows the key's release).
+  On Samsung, Back on the first screen opens a Stay / Samsung Home sheet only where `getAppInfo('com.samsung.tv.csfs')` answers. Text: the same catalogues as Android, packed into `i18n.js` by `tools/webapp.py` (only
   the keys `web/` uses): `tr('Live TV')`, `trf('{n} min ago', {n: 12})`, `plural('plural|…', n)` and
   `formatDate('format|h:mm a', at)` (the catalogue's SimpleDateFormat pattern, written by `web/strings.js`), and
   `tools/translate.py` reads those calls too. Built without a city (`--generic`), `web/zones.js`

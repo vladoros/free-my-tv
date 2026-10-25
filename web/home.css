@@ -10,6 +10,22 @@
   src: url('fonts/InterVariable.ttf') format('truetype');
   font-weight: 100 900;
 }
+/* The three other faces (Home Settings, Font), both under the SIL Open Font License: see fonts/. */
+@font-face {
+  font-family: 'Manrope';
+  src: url('fonts/Manrope-Variable.ttf') format('truetype');
+  font-weight: 200 800;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('fonts/Geist-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+}
+@font-face {
+  font-family: 'Newsreader';
+  src: url('fonts/Newsreader-Variable.ttf') format('truetype');
+  font-weight: 200 800;
+}
 
 html, body {
   margin: 0;
@@ -500,7 +516,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cell.focus .face { -webkit-transform: scale(1.08); transform: scale(1.08); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .cell.focus .label { color: #FFF; }
 
-#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box {
+#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box, #leavepick .box, #wallpick .box {
   position: absolute;
   left: 560px;
   top: 150px;
@@ -512,6 +528,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   background: linear-gradient(rgba(34, 36, 44, 0.96), rgba(18, 20, 26, 0.97));
   box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
+/* Wallpaper: no scrim, the home screen behind is the preview; the list sits at the left. */
+#wallpick { background: none; }
+#wallpick .box { left: 80px; width: 640px; }
 .box .title { font-size: 38px; font-weight: 700; padding: 6px 18px 18px; letter-spacing: -0.01em; }
 .box .title .sym { width: 36px; height: 36px; vertical-align: -5px; margin-right: 14px; color: rgba(255, 255, 255, 0.85); }
 .box .list { position: relative; overflow: hidden; }
@@ -626,7 +645,6 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .flat .cell.focus .face { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4) !important; }
 .flat #home, .flat #drawer, .flat #cards, .flat .card, .flat #tiles, .flat .tile { will-change: transform; }
 .flat #top { will-change: opacity; }
-=======
 /* MARK: - Layout, focus and background (Home Settings): Dock or List, Glass or Type, Photo/Light/Dark. */
 
 /* List: the shelf's apps as rows on the left, the time on the right; the picks and their heading are gone. */
@@ -723,4 +741,167 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .drawer-open #wall .veil { background: rgba(11, 11, 13, 0.58); }
 /* The pick's blurred still is not needed behind a wallpaper. */
 .photo-wall #sky canvas { display: none; }
->>>>>>> eac2755 (feat: add wallpapers, Dock/List layouts and focus styles to the web home screen)
+
+/* MARK: - Apps, Home controls, Material and Clock font: the rest of CleanFrame's look settings. */
+
+/* Apps, icons and text (Dock): the logo above, the app's name on the tile below it. */
+.apps-both .tile img, .apps-both .tile img.logo {
+  top: 42%;
+  height: 40%;
+  max-height: none;
+}
+.apps-both .tile .word { display: none; }
+.apps-both .tile .app-label {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 9px;
+  height: 28px;
+  line-height: 28px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: #FFF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Apps, text (Dock): no logo, the name alone, centered on the brand's color. */
+.apps-text .tile img, .apps-text .tile .word { display: none; }
+.apps-text .tile .app-label {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  margin-top: -22px;
+  height: 44px;
+  line-height: 44px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: #FFF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Apps in the List layout: text drops the icon and starts at the row's edge; icons keeps the name in a pill that follows
+   the focus, so a row is just the logo until it is picked (CleanFrame's appFocusName). */
+.apps-text.layout-list .tile .appicon { display: none; }
+.apps-text.layout-list .tile .name { left: 44px; }
+.layout-list .tile .name {
+  -webkit-transition: opacity 0.18s;
+  transition: opacity 0.18s;
+}
+.apps-icons.layout-list .tile .name { opacity: 0; }
+.apps-icons.layout-list .tile.focus .name {
+  right: auto;
+  top: 24px;
+  height: 56px;
+  line-height: 56px;
+  max-width: 900px;
+  padding: 0 28px;
+  border-radius: 28px;
+  font-size: 30px;
+  opacity: 1;
+  color: #1D1D1F;
+  background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74));
+  background: linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+/* Icons only: the name's pill is the selection, so the row has no plate of its own (!important beats the Glass and Material plates). */
+.apps-icons.layout-list .tile.focus { background: none !important; box-shadow: none !important; }
+.night.apps-icons.layout-list .tile.focus .name {
+  color: #F5F5F7;
+  background: -webkit-linear-gradient(top, rgba(58, 58, 62, 0.9), rgba(34, 34, 38, 0.8));
+  background: linear-gradient(rgba(58, 58, 62, 0.9), rgba(34, 34, 38, 0.8));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* Home controls, icons and text: the round buttons keep their name under them, always. */
+.controls-both .round .tip {
+  top: 82px;
+  width: 168px;
+  margin-left: -84px;
+  font-size: 19px;
+  opacity: 1;
+}
+.controls-both .round.last .tip { left: auto; right: -20px; margin-left: 0; }
+
+/* Home controls, text: no circles, the three names as pills (placed by placeButtons() in home.js). */
+.controls-text .round {
+  top: 76px;
+  width: auto;
+  height: 54px;
+  border-radius: 27px;
+  padding: 0 24px;
+}
+.controls-text .round .sym { display: none; }
+.controls-text .round .tip,
+.controls-text .round.last .tip {
+  position: static;
+  width: auto;
+  margin: 0;
+  left: auto;
+  right: auto;
+  top: auto;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 54px;
+  white-space: nowrap;
+  opacity: 1;
+}
+.controls-text .round.focus { -webkit-transform: scale(1.05); transform: scale(1.05); }
+
+/* Material: the focused app's plate, when a wallpaper is behind and the focus is Glass. Soft is the default above; these
+   are the two other finishes (no blur on old TVs: a film of white, or a clear tint). */
+.mat-frost #platter {
+  background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.68));
+  background: linear-gradient(rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.68));
+}
+.mat-frost.night #platter {
+  background: -webkit-linear-gradient(top, rgba(54, 54, 58, 0.86), rgba(26, 26, 30, 0.74));
+  background: linear-gradient(rgba(54, 54, 58, 0.86), rgba(26, 26, 30, 0.74));
+}
+.mat-tint #platter {
+  background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.18));
+  background: linear-gradient(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.18));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18), inset 0 1.5px 0 rgba(255, 255, 255, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+.mat-tint.night #platter {
+  background: -webkit-linear-gradient(top, rgba(20, 20, 24, 0.56), rgba(12, 12, 16, 0.4));
+  background: linear-gradient(rgba(20, 20, 24, 0.56), rgba(12, 12, 16, 0.4));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4), inset 0 1.5px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.mat-frost.focus-glass.layout-list .tile.focus { background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.8)); background: linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.8)); }
+.mat-tint.focus-glass.layout-list .tile.focus { background: -webkit-linear-gradient(top, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.2)); background: linear-gradient(rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.2)); }
+.night.mat-frost.focus-glass.layout-list .tile.focus { background: -webkit-linear-gradient(top, rgba(64, 64, 68, 0.86), rgba(38, 38, 42, 0.8)); background: linear-gradient(rgba(64, 64, 68, 0.86), rgba(38, 38, 42, 0.8)); }
+.night.mat-tint.focus-glass.layout-list .tile.focus { background: -webkit-linear-gradient(top, rgba(22, 22, 26, 0.6), rgba(14, 14, 18, 0.44)); background: linear-gradient(rgba(22, 22, 26, 0.6), rgba(14, 14, 18, 0.44)); }
+
+/* Font (Home Settings): the clock, the apps' names and the buttons, and the screensaver's clock, in Manrope, Geist or Newsreader
+   (a serif); Settings and the sheets stay Inter. Only the clock changes its weight and spacing. */
+.clock-manrope #clock, .clock-manrope #saver .clock .time, .clock-manrope .tile, .clock-manrope .round {
+  font-family: 'Manrope', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+}
+.clock-geist #clock, .clock-geist #saver .clock .time, .clock-geist .tile, .clock-geist .round {
+  font-family: 'Geist', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+}
+.clock-newsreader #clock, .clock-newsreader #saver .clock .time, .clock-newsreader .tile, .clock-newsreader .round {
+  font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
+}
+.clock-manrope #clock, .clock-manrope #saver .clock .time { font-weight: 600; letter-spacing: -0.03em; }
+.clock-geist #clock, .clock-geist #saver .clock .time { font-weight: 500; letter-spacing: -0.03em; }
+.clock-newsreader #clock, .clock-newsreader #saver .clock .time { font-weight: 400; letter-spacing: -0.01em; }
+
+/* List: the rows fade out where the list goes on above or below. */
+#tilesview { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+.layout-list #tilesview.fade-top { -webkit-mask-image: -webkit-linear-gradient(top, transparent 120px, #000 190px); }
+.layout-list #tilesview.fade-bottom { -webkit-mask-image: -webkit-linear-gradient(top, #000 760px, transparent 850px); }
+.layout-list #tilesview.fade-top.fade-bottom { -webkit-mask-image: -webkit-linear-gradient(top, transparent 120px, #000 190px, #000 760px, transparent 850px); }
+
+/* Reduced motion: no animated movement or scaling, only the fades. */
+@media (prefers-reduced-motion: reduce) {
+  * { -webkit-transition-property: opacity, background-color !important; transition-property: opacity, background-color !important; }
+}

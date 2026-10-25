@@ -98,6 +98,10 @@ def files(config, made_by):
     for name in sorted(os.listdir(icons)):
         with open(os.path.join(icons, name), 'rb') as f:
             out['icons/' + name] = f.read()
+    fonts = os.path.join(web, 'fonts')
+    for name in sorted(os.listdir(fonts)):
+        with open(os.path.join(fonts, name), 'rb') as f:
+            out['fonts/' + name] = f.read()
     walls = os.path.join(web, 'wallpapers')
     for name in sorted(os.listdir(walls)):
         if name.endswith('.jpg'):

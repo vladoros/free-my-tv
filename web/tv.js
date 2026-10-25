@@ -202,6 +202,7 @@ var TV = (function () {
 
   // Samsung's settings menu on Tizen 3, which answers no "settings" app control.
   var SAMSUNG_MENU = 'org.tizen.menu';
+  var SAMSUNG_HOME = 'com.samsung.tv.csfs';   // Samsung's own Home, where newer TVs have it (CleanFrame found it on Tizen 9)
 
   // Samsung's live TV viewer: it shows whichever source the TV is on (the antenna, or the HDMI picked here).
   var SAMSUNG_VIEWER = 'org.tizen.tv-viewer';
@@ -607,6 +608,15 @@ var TV = (function () {
 
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
+
+    /** Samsung: whether this TV has its original Home app (Smart Hub), which Back on the first screen can offer. */
+    hasHome: function () {
+      if (!samsung) return false;
+      try { return !!window.tizen.application.getAppInfo(SAMSUNG_HOME); } catch (e) { return false; }
+    },
+
+    /** Samsung: opens the original Home app; done(ok). */
+    openHome: function (done) { samsungLaunch(SAMSUNG_HOME, done); },
 
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {

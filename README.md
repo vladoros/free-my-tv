@@ -322,10 +322,24 @@ What it adds, in *Home Settings* (the gear button at the top right):
 | Movies and shows | on / off | Off hides the picks, their heading and the Explore/Movies/Shows tabs, and stops the TMDB requests. The clock, the shelf, the weather and the prices stay. |
 | Layout | Dock / List | Dock is the home screen as described above. List shows the shelf's apps as big rows down the left with the time on the right, and no picks. |
 | Focus | Glass / Type | Glass puts the focused app on a lit plate. Type has no plate: the focused app grows or slides right and the others fade. |
+| Material | Soft / Frost / Clear tint | The finish of the focused app's plate, when a wallpaper is behind and Focus is Glass. Old TVs can't blur, so it's a film of white (Soft, Frost) or a clear tint. |
 | Background | Photo / Light / Dark | Photo shows the wallpaper; Light and Dark are plain surfaces, and set the light or the dark ink. |
-| Wallpaper | fifteen photos | Left and right browse them, live, in either layout. Picking one also sets Background to Photo. |
+| Wallpaper | fifteen photos | OK opens a list at the left; the home screen behind shows the photo under the focus, and OK sets it (and Background to Photo). Back keeps the one you had. |
+| Rotation | Off / Each time Home opens / Every 5 minutes / Every 15 minutes / Hourly / Daily | Moves on to the next photo each time the app opens, or on that schedule. It waits while Background isn't Photo. |
+| Apps | Icons / Icons and text / Text | What the shelf shows: the logo, the logo with the app's name under it, or the name alone. In List, Icons keeps the name in a pill on the focused row. |
+| Home controls | Icons / Icons and text / Text | The round Live TV, HDMI and Settings buttons: circles, circles with their name under them, or three pills with the names only. |
+| Font | Inter / Manrope / Geist / Newsreader | The clock, the apps' names and the round buttons (and the screensaver's clock) in Inter (the default), Manrope, Geist or Newsreader, a serif. Settings and the sheets stay Inter. |
+| Shelf | | The apps on the shelf, one to nine. OK adds or removes one, left and right reorder, apps you took off this visit are listed as *Recently removed* and return to their old place, and the last row, *Undo*, reverses the last change. |
 
 The photographs are CleanFrame's own fifteen, at full size, credited in [`web/wallpapers/CREDITS.md`](web/wallpapers/CREDITS.md) (Unsplash licence). The app takes its ink from each photo's brightness, so the dark ones (*Forest mist*, *Blue peaks*, *Bridge at dusk*) switch it to light text; *Theme* still wins when you set it by hand.
+
+When the picks are empty (or there's no TMDB key), the screensaver shows those photographs instead, starting at the wallpaper you chose.
+
+The picks come only from the apps on the shelf: a streaming service that isn't there (or isn't on TMDB for your country) gets no titles. Each shelf app has a share of them, and Plex and YouTube, which are free with ads, offer their most popular titles rather than only new ones. Press OK on a pick and the app opens on its home: the web app can't open the title itself (that needs the app's own title ID, and Netflix on a Samsung TV ignored every launch format tried), and `watchmode_key` only works on Android.
+
+In List, the rows fade out where the list goes on above or below. A held OK or Back acts once. With the TV's reduced-motion setting on, only fades animate.
+
+On Samsung, Back on the first screen offers *Stay* or *Samsung Home* when the TV has Samsung's own Home app (`com.samsung.tv.csfs`); without it, Back works as before.
 
 The same branch fixes the remote's Up button: from a pick or from the app row it now lands on the nearest tab or round button above, instead of always the first tab, so Live TV, HDMI and Settings are reachable. Items that aren't on screen are skipped, such as the tabs when the picks are off or the layout is List.
 
@@ -402,6 +416,7 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 - Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Prices from the [Binance](https://www.binance.com/) public API.
 - Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1). Coin logos: [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons) (CC0). Samsung app logos: [Simple Icons](https://simpleicons.org) (CC0).
 - The QR code encoder follows Project Nayuki's [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT).
+- On the `tweaks` branch: the wallpapers are [CleanFrame](https://github.com/nthnclrk/CleanFrame)'s, and the other three faces are [Manrope](https://github.com/sharanda/manrope), [Geist](https://github.com/vercel/geist-font) and [Newsreader](https://www.productiontype.com/family/newsreader), all under the SIL OFL 1.1 (licences in [`web/fonts/`](web/fonts)).
 - Not affiliated with Google, TCL, LG, Samsung or any streaming service. App names and logos belong to their owners.
 
 ## License

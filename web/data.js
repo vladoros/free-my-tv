@@ -95,6 +95,33 @@ var Prefs = (function () {
       for (var i = 0; i < list.length; i++) if (list[i].id === id) return id;
       return list.length ? list[0].id : '';
     },
+    /** When the wallpaper last changed, for the rotation below: ms since 1970, or 0 before it was ever set. */
+    wallpaperAt: function () { return pick('wallpaperAt', 0); },
+    /** 'off': the wallpaper stays. 'open': the next one each time Home opens. The others: the next one every so often. */
+    rotation: function () {
+      var r = pick('rotation', 'off');
+      return r === 'open' || r === 'five' || r === 'quarter' || r === 'hourly' || r === 'daily' ? r : 'off';
+    },
+    /** What the shelf's apps show: 'icons', 'both' (icon and name) or 'text' (the name only). */
+    apps: function () {
+      var a = pick('apps', 'icons');
+      return a === 'both' || a === 'text' ? a : 'icons';
+    },
+    /** What the round Live TV/HDMI/Settings buttons show: 'icons', 'both' or 'text'. */
+    controls: function () {
+      var c = pick('controls', 'icons');
+      return c === 'both' || c === 'text' ? c : 'icons';
+    },
+    /** The finish of the focused plate over a wallpaper: 'soft', 'frost' or 'tint' (clear). */
+    material: function () {
+      var m = pick('material', 'soft');
+      return m === 'frost' || m === 'tint' ? m : 'soft';
+    },
+    /** The home screen's typeface (the clock, app names and buttons): 'inter', 'manrope', 'geist' or 'newsreader' (a serif). */
+    clockFont: function () {
+      var f = pick('clockFont', 'inter');
+      return f === 'manrope' || f === 'geist' || f === 'newsreader' ? f : 'inter';
+    },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     /** Picks per tab: 3 (as it was) up to 6. */
     cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 6 ? 6 : n; },
