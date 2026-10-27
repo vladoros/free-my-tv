@@ -487,11 +487,16 @@ var TV = (function () {
         if (v.buildVersion) out.firmware = v.buildVersion;
         if (v.model) out.model = v.model;
       });
+      // Not gated on `status`: some firmware reports it as something other than 'ON' while connected.
+      var address = function (v) {
+        var ip = v && v.ipAddress;
+        return ip && ip !== '0.0.0.0' && /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip : '';
+      };
       property('ETHERNET_NETWORK', function (v) {
-        if (v.status === 'ON' && v.ipAddress) out.ip = v.ipAddress;
+        out.ip = address(v) || out.ip;
       });
       property('WIFI_NETWORK', function (v) {
-        if (v.status === 'ON' && v.ipAddress && !out.ip) out.ip = v.ipAddress;
+        out.ip = out.ip || address(v);
       });
     } else {
       out = {model: 'OLED55C1', firmware: '03.33.85', system: 'webOS 6.0', version: 'preview', ip: '192.168.1.50'};

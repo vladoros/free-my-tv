@@ -590,6 +590,9 @@
   /** The focused pick's photo as the background once the focus has rested on it: a quick run along the row fades once. */
   function followSoon() {
     clearTimeout(bgTimer);
+    // Only the plain Photo background shows the still: a wallpaper, Light and Dark hide its canvas (home.css), so the
+    // fetch and the draw would never be seen.
+    if (Prefs.background() !== 'photo' || wallpaper()) return;
     bgTimer = setTimeout(function () {
       if (cards.length) backdrop(Data.image(cards[Math.min(st.card, cards.length - 1)].backdrop, 'w300'));
     }, BG_FOLLOW_MS);
