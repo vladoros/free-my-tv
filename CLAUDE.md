@@ -541,7 +541,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   watchdog's revert stop it; `adb shell pgrep -f 'freemytv-wak[e]'` shows it. Leave `cleanmaster` on: the loop doesn't
   need it off.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
-- LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
+- LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid, backdrop-filter, `inset` or flex `gap`, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017 (`tools/check.sh` greps for all of these); only transform
   and opacity animate. Tizen 2.4 (2016) runs WebKit 538: no Intl (`fmt` in data.js rounds by hand), SVGs need a width
   and height, and `tv.js` adds a `lite` class there that turns off shadows and transitions, which its GPU can't keep up

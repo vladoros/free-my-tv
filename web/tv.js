@@ -149,6 +149,8 @@ var TV = (function () {
   // A 2023 Q60C (Tizen 9 in Brazil) ships Globoplay as org.tizen.globoplayapp.
   // A 2023 CU7700 (Tizen 9) leaves `show` unset on ~500 apps: Samsung's system namespaces go, but for the store,
   // SmartThings, Apple TV (aria-video), TV Plus, Gaming Hub and Windows 365.
+  // Frames of 2022 to 2025 (CleanFrame's lists) also list the e-manuals, the pop-up and CMS pieces, the account
+  // extension, the cast settings and the privacy choices as apps.
   var SAMSUNG_HIDDEN = new RegExp('^(org\\.volt\\.|org\\.tizen\\.(?!browser$|netflix|primevideo$|globoplay)|org\\.tizen\\.netflixlowmem$|ise-|ug-|d75857a5-)' +
       '|[Ss]ervice$|[Dd]aemon|Preview$|syspopup|[Hh]elper$|AdPlayer|AdSuite|[Kk]eyboard|\\.OTApp$' +
       '|^com\\.samsung\\.calendar-account-manager' +
@@ -157,6 +159,7 @@ var TV = (function () {
       '|^com\\.samsung\\.(ep[-.]|rdm[-.]|SelfDiagnosis$|mtm-banner$|hitcomp$|video-test$)' +
       '|^com\\.sausng\\.' +
       '|^adplatform\\.' +
+      '|\\.emanual$|^2022ePop|^WykOS4t4F0\\.|WebAccountExtension$|CastSettingsApp$|PrivacyChoices$' +
       '|^(unified-drm-|lib-|p2p-asm|mobilebff$|comss$|acm-watcher$|dmr_service_app$|aifw-|csapi-|capi-|ep-|test-|emergency-log-transmitter$|samsung-easy-support$)');
 
   // Samsung apps whose iconPath is Tizen's generic pinwheel (a valid image, so onerror never fires): our own icons.
@@ -254,6 +257,9 @@ var TV = (function () {
   // MARK: - Samsung
 
   function samsungApps(done) {
+    // A big catalogue (a 2025 Frame, CleanFrame) can answer slowly, and a call that never answers would leave the shelf empty.
+    var over = false, timer = setTimeout(function () { finish([]); }, 20000);
+    function finish(list) { if (over) return; over = true; clearTimeout(timer); done(list); }
     try {
       window.tizen.application.getAppsInfo(function (list) {
         var out = [];
@@ -275,10 +281,10 @@ var TV = (function () {
         if (store) out = out.filter(function (x) { return x.id.indexOf('org.tizen.netflix') !== 0; });
         // Smart Hub keeps its own order, which isn't readable: the same alphabetical order as All Apps elsewhere.
         out.sort(function (x, y) { var a = x.title.toLowerCase(), b = y.title.toLowerCase(); return a < b ? -1 : a > b ? 1 : 0; });
-        done(out);
-      }, function () { done([]); });
+        finish(out);
+      }, function () { finish([]); });
     } catch (e) {
-      done([]);
+      finish([]);
     }
   }
 

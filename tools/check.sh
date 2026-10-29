@@ -40,8 +40,8 @@ if [ "$what" = all ] || [ "$what" = web ]; then
     echo "web/ calls something older TVs don't have (above)." >&2
     exit 1
   fi
-  # Nor do they have CSS custom properties, grid or backdrop-filter (home.css says why).
-  if grep -nE '(^|[{;])[[:space:]]*(--[a-zA-Z-]+[[:space:]]*:|[a-z-]+[[:space:]]*:[^;{}]*var\(|display[[:space:]]*:[[:space:]]*(inline-)?grid([^a-z-]|$)|grid-[a-z-]+[[:space:]]*:|(-webkit-)?backdrop-filter[[:space:]]*:)' web/*.css; then
+  # Nor do they have CSS custom properties, grid, backdrop-filter, the inset shorthand (Chromium 87) or flex gap (84).
+  if grep -nE '(^|[{;])[[:space:]]*(--[a-zA-Z-]+[[:space:]]*:|[a-z-]+[[:space:]]*:[^;{}]*var\(|display[[:space:]]*:[[:space:]]*(inline-)?grid([^a-z-]|$)|grid-[a-z-]+[[:space:]]*:|(-webkit-)?backdrop-filter[[:space:]]*:|inset[[:space:]]*:|(row-|column-)?gap[[:space:]]*:)' web/*.css; then
     echo "web/ uses CSS older TVs don't have (above)." >&2
     exit 1
   fi
