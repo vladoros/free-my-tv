@@ -1,7 +1,7 @@
 /*
  * The home screen on a 1920 × 1080 stage, with the Android app's measurements (HomeView): the title and tabs at the top
  * left, icon-only glass buttons at the top right, three picks, and the glass shelf at the bottom; ↓ on the shelf opens
- * the drawer (inputs, shortcuts, weather, prices). Light by day, dark from sunset to sunrise.
+ * the drawer (inputs, shortcuts, weather, prices, and the Formula 1 season). Light by day, dark from sunset to sunrise.
  * No CSS variables, grid or backdrop-filter: older LG TVs (webOS 3 and 4) don't have them, and blur is too heavy for
  * their GPUs. Only transform and opacity animate.
  */
@@ -98,14 +98,15 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 /* Their own layers, so the slide is moved by the GPU and never repainted. */
 #home, #drawer { will-change: transform, opacity; }
-.drawer-open #home { -webkit-transform: translateY(-560px); transform: translateY(-560px); }
+/* The drawer fills the screen (the keys, the weather and the season, 110 to 972), so the home leaves it entirely. */
+.drawer-open #home { -webkit-transform: translateY(-1020px); transform: translateY(-1020px); }
 #top { -webkit-transition: opacity 0.2s; transition: opacity 0.2s; }
 .drawer-open #top { opacity: 0; }
-#drawer { -webkit-transform: translateY(560px); transform: translateY(560px); opacity: 0; }
+#drawer { -webkit-transform: translateY(1020px); transform: translateY(1020px); opacity: 0; }
 .drawer-open #drawer { -webkit-transform: none; transform: none; opacity: 1; }
-/* Closed, it still spans the screen below the shelf: only its keys take the pointer, and only when it's open. */
+/* Closed, it sits just below the screen: only its keys and race tiles take the pointer, and only when it's open. */
 #drawer { pointer-events: none; }
-.drawer-open #drawer .key { pointer-events: auto; }
+.drawer-open #drawer .key, .drawer-open #drawer .race { pointer-events: auto; }
 
 /* MARK: - Title and tabs */
 
@@ -415,7 +416,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* MARK: - Drawer: inputs and shortcuts, weather, prices */
 
-.row-title { position: absolute; top: 494px; font-size: 25px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
+/* A line box of its own: the TV's fallback font has taller metrics than Inter, and a loose title crowded the row below. */
+.row-title { position: absolute; top: 110px; height: 30px; line-height: 30px; font-size: 25px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
 .night .row-title { color: rgba(255, 255, 255, 0.7); }
 
 .glass {
@@ -429,9 +431,89 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), inset 0 1.5px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
+/* Formula 1: a card per race of the season, as tall as the weather card below it, its podium once it's run, or the
+   weekend's sessions until then. */
+#races { position: absolute; left: 80px; top: 306px; width: 1760px; height: 342px; }
+#races.hide { display: none; }
+/* With no season to show (Jolpica unreachable), the weather and prices take the row's place. */
+#races.hide ~ .panel { top: 306px; }
+#races .row-title { top: 0; }
+#racetrack {
+  position: absolute;
+  left: 0;
+  top: 42px;
+  width: 8200px;
+  height: 300px;
+  -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1);
+  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.race {
+  position: absolute;
+  top: 0;
+  width: 340px;
+  height: 300px;
+  padding: 18px;
+  box-sizing: border-box;
+  border-radius: 26px;
+  color: #1D1D1F;
+  -webkit-transition: -webkit-transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.19s, background-color 0.14s;
+  transition: transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.19s, background-color 0.14s;
+}
+.race .top { height: 28px; line-height: 28px; font-size: 19px; font-weight: 500; color: #8E8E93; white-space: nowrap; overflow: hidden; }
+/* The round sits in a capsule with room above and below the number, not a bare digit on the line. (Not ".round":
+   that class is the Live TV / HDMI / Settings circle, and its absolute placement would drop this one onto the name.) */
+.race .num { display: inline-block; min-width: 16px; height: 28px; line-height: 28px; padding: 0 10px; border-radius: 14px; background: rgba(0, 0, 0, 0.06); text-align: center; vertical-align: top; font-size: 18px; font-weight: 600; }
+.race .where { margin-left: 10px; }
+/* A line box of its own for each: the TV's fallback font has taller metrics than Inter, and without it the name's
+   descenders reach into the date below. */
+.race .name {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 52px;
+  height: 36px;
+  line-height: 36px;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.race .date { position: absolute; left: 18px; right: 18px; top: 98px; height: 28px; line-height: 28px; font-size: 20px; font-weight: 500; color: #6E6E73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.race .podium { position: absolute; left: 15px; right: 12px; top: 138px; }
+.race .place, .race .sess { position: relative; }
+/* Three places over the same room four sessions take, so every tile ends its rows at the same line. */
+.race .place { height: 46px; line-height: 46px; }
+.race .sess { height: 34px; line-height: 34px; }
+.race .bar { position: absolute; left: 0; top: 17px; width: 3px; height: 12px; border-radius: 2px; }
+.race .p { position: absolute; left: 9px; width: 16px; font-size: 18px; font-weight: 600; color: #8E8E93; text-align: right; }
+.race .code { position: absolute; left: 34px; font-size: 21px; font-weight: 700; letter-spacing: 0.03em; }
+.race .who { position: absolute; left: 88px; right: 0; font-size: 21px; font-weight: 500; color: #3C3C43; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.race .team { margin-left: 8px; font-size: 18px; font-weight: 500; color: #8E8E93; }
+/* A race still to come: when each session starts, in the TV's own time. */
+.race .sess .l { position: absolute; left: 0; max-width: 64%; font-size: 20px; font-weight: 500; color: #6E6E73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.race .sess .t { position: absolute; right: 0; font-size: 20px; font-weight: 500; color: #3C3C43; white-space: nowrap; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+.race.focus { background: #F5F5F7; -webkit-transform: scale(1.04); transform: scale(1.04); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42); z-index: 2; }
+.night .race { color: rgba(255, 255, 255, 0.95); }
+.night .race .top, .night .race .date { color: rgba(255, 255, 255, 0.6); }
+.night .race .num { background: rgba(255, 255, 255, 0.12); }
+.night .race .p { color: rgba(255, 255, 255, 0.55); }
+.night .race .who { color: rgba(255, 255, 255, 0.82); }
+.night .race .team { color: rgba(255, 255, 255, 0.55); }
+.night .race .sess .l { color: rgba(255, 255, 255, 0.55); }
+.night .race .sess .t { color: rgba(255, 255, 255, 0.85); }
+.night .race.focus { color: #1C1C1E; }
+.night .race.focus .top, .night .race.focus .date { color: #6E6E73; }
+.night .race.focus .num { background: rgba(0, 0, 0, 0.06); }
+.night .race.focus .p { color: #8E8E93; }
+.night .race.focus .who { color: #3C3C43; }
+.night .race.focus .team, .night .race.focus .sess .l { color: #8E8E93; }
+.night .race.focus .sess .t { color: #3C3C43; }
+
 .key {
   position: absolute;
-  top: 540px;
+  top: 156px;
   height: 126px;
   border-radius: 20px;
   text-align: center;
@@ -447,7 +529,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night .key.off { color: rgba(255, 255, 255, 0.42); }
 .night .key.focus { color: #1C1C1E; }
 
-.panel { position: absolute; top: 708px; height: 300px; border-radius: 30px; overflow: hidden; color: #1D1D1F; }
+.panel { position: absolute; top: 672px; height: 300px; border-radius: 30px; overflow: hidden; color: #1D1D1F; }
 .night .panel { color: #F5F5F7; }
 .panel .head { position: absolute; left: 34px; top: 30px; font-size: 25px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
 .panel .side { position: absolute; right: 34px; top: 33px; font-size: 21px; font-weight: 500; color: #8E8E93; white-space: nowrap; }
@@ -520,7 +602,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cell.focus .face { -webkit-transform: scale(1.08); transform: scale(1.08); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .cell.focus .label { color: #FFF; }
 
-#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box, #leavepick .box, #wallpick .box {
+#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box, #leavepick .box, #wallpick .box, #raceinfo .box {
   position: absolute;
   left: 560px;
   top: 150px;
@@ -588,6 +670,23 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #ambient .side { position: absolute; right: 108px; top: 250px; width: 660px; text-align: right; color: #F5F5F7; }
 #ambient .temp { font-size: 118px; font-weight: 200; line-height: 1; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
 #ambient .cond { margin-top: 8px; font-size: 30px; font-weight: 500; color: rgba(245, 245, 247, 0.6); }
+
+/* One race: the classification, or the sessions of a weekend still to come, in two columns. */
+#raceinfo .box { left: 140px; top: 110px; width: 1640px; }
+#raceinfo .f1when { margin-top: -12px; padding: 0 18px; font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.55); }
+#raceinfo .f1cols { position: relative; margin-top: 24px; }
+#raceinfo .f1col { position: absolute; left: 0; top: 0; width: 760px; }
+#raceinfo .f1col.b { left: 800px; }
+#raceinfo .f1res { position: relative; height: 52px; line-height: 52px; font-size: 24px; white-space: nowrap; }
+#raceinfo .f1res .p { position: absolute; left: 0; width: 36px; text-align: right; font-size: 22px; font-weight: 600; color: rgba(255, 255, 255, 0.45); }
+#raceinfo .f1res .bar { position: absolute; left: 50px; top: 20px; width: 4px; height: 13px; border-radius: 2px; }
+#raceinfo .f1res .code { position: absolute; left: 66px; width: 60px; font-size: 21px; font-weight: 700; letter-spacing: 0.04em; }
+#raceinfo .f1res .who { position: absolute; left: 138px; right: 150px; overflow: hidden; text-overflow: ellipsis; }
+#raceinfo .f1res .who .team { margin-left: 12px; font-size: 21px; font-weight: 500; color: rgba(255, 255, 255, 0.55); }
+#raceinfo .f1res .time { position: absolute; right: 0; font-size: 21px; color: rgba(255, 255, 255, 0.75); -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#raceinfo .f1sess { position: relative; height: 60px; line-height: 60px; font-size: 26px; white-space: nowrap; }
+#raceinfo .f1sess .l { position: absolute; left: 0; font-weight: 500; }
+#raceinfo .f1sess .t { position: absolute; right: 0; font-weight: 500; color: rgba(255, 255, 255, 0.7); -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
 
 /* MARK: - Screensaver: the picks' photos, slowly moving, and a clock */
 

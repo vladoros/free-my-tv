@@ -320,11 +320,14 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', LEAVE: 'leave', WALL: 'wall'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, leave: 0, wall: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', RACES: 'races', RACEINFO: 'raceinfo', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', LEAVE: 'leave', WALL: 'wall'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, races: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, leave: 0, wall: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.LEAVE || st.zone === Z.WALL; }
+  /** The drawer is up for the Formula 1 row and the keys alike: both ride in it (home.css). */
+  function inDrawer() { return st.zone === Z.RACES || st.zone === Z.DRAWER; }
+
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.LEAVE || st.zone === Z.WALL || st.zone === Z.RACEINFO; }
 
   function updateFocus() {
     var i, list;
@@ -345,6 +348,9 @@
     revealShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
+    list = document.querySelectorAll('#racetrack .race');
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.RACES && st.races === i);
+    placeRaces();
     list = document.querySelectorAll('#apps .cell');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.APPS && st.grid === i);
     var rows = Math.max(1, Math.ceil(others.length / 5)), r = Math.floor(st.grid / 5), first = Math.max(0, Math.min(rows - 3, r - 1));
@@ -357,7 +363,7 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
-    setClass(body, 'drawer-open', st.zone === Z.DRAWER);
+    setClass(body, 'drawer-open', inDrawer());
     followSoon();
   }
 
@@ -750,6 +756,12 @@
       hover(key, Z.DRAWER, k);
       xPos += tw + gap;
     }
+    var band = el('div', 'races', d);
+    band.id = 'races';
+    el('div', 'row-title', band, tr('Formula 1'));
+    el('div', 'track', band).id = 'racetrack';
+    raceSig = '';   // a fresh band needs its tiles again
+    renderRaces();
     renderPanels();
     updateFocus();
   }
@@ -822,18 +834,172 @@
     }
   }
 
+  // MARK: - Formula 1 row
+
+  var RACE_W = 340, RACE_GAP = 14, RACE_VISIBLE = 5, raceNodes = [], raceSig = '';
+
+  /** The race the row rests on when the drawer opens: the last one run, or the next one, or the first. */
+  function currentRace() {
+    var list = Data.races || [], i, last = -1;
+    for (i = 0; i < list.length; i++) if (list[i].podium.length) last = i;
+    if (last >= 0) return last;
+    for (i = 0; i < list.length; i++) if (list[i].date > Date.now()) return i;
+    return 0;
+  }
+
+  /** A race that's under way (or over): its result is what the tile shows, not the weekend's times. */
+  function raceRan(r) { return r.podium.length > 0 || (r.at > 0 && r.at < Date.now()); }
+
+  /** A session's name: practice keeps its short form, which reads the same in every language; the rest are words. */
+  function sessionLabel(k) {
+    if (k === 'fp1') return 'FP1';
+    if (k === 'fp2') return 'FP2';
+    if (k === 'fp3') return 'FP3';
+    if (k === 'q') return tr('Qualifying');
+    if (k === 'sq') return tr('Sprint qualifying');
+    if (k === 'sprint') return tr('Sprint');
+    return tr('Race');
+  }
+
+  /** One tile per race of the season: its podium, or the weekend's sessions until it's been run. */
+  function renderRaces() {
+    var band = $('races'), track = $('racetrack'), list = Data.races || [];
+    if (!band || !track) return;
+    setClass(band, 'hide', !list.length);
+    if (!list.length) { track.innerHTML = ''; raceNodes = []; raceSig = ''; return; }
+    var sig = I18N.lang + '|' + Data.racesVersion;
+    if (sig === raceSig) return;
+    raceSig = sig;
+    track.innerHTML = '';
+    raceNodes = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i], t = el('div', 'race glass', track), p, x, row;
+      t.style.left = (i * (RACE_W + RACE_GAP)) + 'px';
+      var top = el('div', 'top', t);
+      el('span', 'num', top, String(r.round));
+      el('span', 'where', top, r.city || r.country);
+      el('div', 'name', t, r.name);
+      el('div', 'date', t, r.date ? formatDate('format|EEEE, MMMM d', r.date) : '');
+      var rows = el('div', 'podium', t);
+      if (raceRan(r)) {
+        for (p = 0; p < r.podium.length; p++) {
+          x = r.podium[p];
+          if (!x) continue;
+          row = el('div', 'place', rows);
+          el('span', 'bar', row).style.background = Data.teamColor(x.teamId || x.team);
+          el('span', 'p', row, String(x.p));
+          el('span', 'code', row, x.code);
+          var who = el('span', 'who', row, x.name);
+          if (x.teamName) el('span', 'team', who, x.teamName);
+        }
+      } else {
+        // The weekend as it runs: the race itself is the tile's date line, so it isn't listed twice.
+        for (p = 0; p < r.sessions.length; p++) {
+          x = r.sessions[p];
+          if (x.k === 'race') continue;
+          row = el('div', 'sess', rows);
+          el('span', 'l', row, sessionLabel(x.k));
+          el('span', 't', row, x.at ? Data.weekday(x.at) + ' ' + Data.time(x.at) : '');
+        }
+      }
+      hover(t, Z.RACES, i);
+      raceNodes.push(t);
+    }
+    track.style.width = (list.length * (RACE_W + RACE_GAP)) + 'px';
+    st.races = Math.max(0, Math.min(st.races, list.length - 1));
+    placeRaces();
+    if (inDrawer()) updateFocus();   // new tiles carry no focus class yet
+  }
+
+  /** Slides the row (a transform on #racetrack) so the focused race is among the five on screen. */
+  function placeRaces() {
+    var track = $('racetrack'), n = raceNodes.length;
+    if (!track || !n) return;
+    var max = Math.max(0, n - RACE_VISIBLE), first = Math.max(0, Math.min(max, st.races - 2));
+    track.style.webkitTransform = track.style.transform = 'translateX(' + (-first * (RACE_W + RACE_GAP)) + 'px)';
+  }
+
+  /** Where a race tile sits, left to right, once the row is in place: the drawer moves it, not the layout. */
+  function raceX(i) {
+    var first = Math.max(0, Math.min(Math.max(0, raceNodes.length - RACE_VISIBLE), st.races - 2));
+    return 80 - first * (RACE_W + RACE_GAP) + (raceNodes[i] ? raceNodes[i].offsetLeft : 0) + RACE_W / 2;
+  }
+
   function openDrawer() {
     if (!drawerItems.length) return;
-    var tiles = $('tiles').children;
-    st.zone = Z.DRAWER;
-    st.drawer = Math.min(drawerItems.length - 1, nearest(document.querySelectorAll('#drawer .key'), centerX(tiles[st.shelf])));
+    var tiles = $('tiles').children, keys = document.querySelectorAll('#drawer .key');
+    st.drawer = Math.min(drawerItems.length - 1, nearest(keys, centerX(tiles[st.shelf])));
+    // The season is the row to land on, right under the keys: the race just run is the one to see.
+    if (raceNodes.length) { st.races = currentRace(); st.zone = Z.RACES; }
+    else st.zone = Z.DRAWER;
     updateFocus();
   }
 
   function closeDrawer() {
     var keys = document.querySelectorAll('#drawer .key');
+    var from = st.zone === Z.RACES && raceNodes.length ? raceX(st.races) : centerX(keys[st.drawer]);
     st.zone = Z.SHELF;
-    if (shelf.length) st.shelf = nearest($('tiles').children, centerX(keys[st.drawer]));
+    if (shelf.length) st.shelf = nearest($('tiles').children, from);
+    updateFocus();
+  }
+
+  // MARK: - One race: its classification, or the weekend's timetable before it's run
+
+  var shownRace = null;
+
+  /** The window: two columns of finishers, or, before the race, when each session starts (in the TV's own time). */
+  function renderRaceInfo(r, results) {
+    var box = $('raceinfo').firstChild, i, x, row;
+    box.innerHTML = '';
+    el('div', 'title', box, r.name);
+    el('div', 'f1when', box, (r.city || r.country) + (r.date ? '  ·  ' + formatDate('format|EEEE, MMMM d', r.date) : ''));
+    var cols = el('div', 'f1cols', box), left = el('div', 'f1col a', cols), right = el('div', 'f1col b', cols);
+    if (!raceRan(r)) {
+      // Three sessions beside two, so the columns end level; each line's height is home.css's own.
+      var n = r.sessions.length, first = Math.ceil(n / 2);
+      for (i = 0; i < n; i++) {
+        x = r.sessions[i];
+        row = el('div', 'f1sess', i < first ? left : right);
+        el('span', 'l', row, sessionLabel(x.k));
+        el('span', 't', row, x.at ? Data.weekday(x.at) + ' ' + Data.time(x.at) : '');
+      }
+      cols.style.height = (first * 60) + 'px';
+      el('div', 'hint', box, tr('Back closes.'));
+      return;
+    }
+    var list = results && results.length ? results : r.podium, half = Math.ceil(list.length / 2);
+    for (i = 0; i < list.length; i++) {
+      x = list[i];
+      row = el('div', 'f1res', i < half ? left : right);
+      el('span', 'p', row, x.p ? String(x.p) : '');
+      el('span', 'bar', row).style.background = Data.teamColor(x.teamId || x.team);
+      el('span', 'code', row, x.code);
+      var who = el('span', 'who', row, x.full || x.name);
+      if (x.teamName) el('span', 'team', who, x.teamName);
+      el('span', 'time', row, x.time || '');
+    }
+    cols.style.height = (half * 52) + 'px';
+    el('div', 'hint', box, tr('Back closes.'));
+  }
+
+  function openRaceInfo(r) {
+    if (!r) return;
+    shownRace = r;
+    st.zone = Z.RACEINFO;
+    renderRaceInfo(r, null);
+    setClass($('raceinfo'), 'open', true);
+    updateFocus();
+    if (!raceRan(r)) return;
+    // The podium already there is shown meanwhile; the rest of the field comes in a moment.
+    Data.raceResults(r, function (list) {
+      if (st.zone === Z.RACEINFO && shownRace === r && list && list.length) renderRaceInfo(r, list);
+    });
+  }
+
+  function closeRaceInfo() {
+    shownRace = null;
+    setClass($('raceinfo'), 'open', false);
+    st.zone = Z.RACES;
     updateFocus();
   }
 
@@ -874,6 +1040,8 @@
     setClass($('citypick'), 'open', false);
     setClass($('keypick'), 'open', false);
     setClass($('leavepick'), 'open', false);
+    shownRace = null;
+    setClass($('raceinfo'), 'open', false);
     if (st.zone === Z.WALL) cancelWallpaper(true);
     setClass($('wallpick'), 'open', false);
     langHint = null;
@@ -1619,7 +1787,7 @@
       case Z.TOP:
         if (st.top < 3) return;
         if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.zone = Z.DRAWER; st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
       case Z.CARDS:
@@ -1631,6 +1799,9 @@
         return;
       case Z.DRAWER:
         if (drawerItems[st.drawer]) drawerItems[st.drawer].run();
+        return;
+      case Z.RACES:
+        openRaceInfo((Data.races || [])[st.races]);
         return;
       case Z.APPS:
         if (others[st.grid]) launcher(others[st.grid].id, others[st.grid].title)();
@@ -1710,8 +1881,22 @@
           else st.zone = Z.SHELF;
         }
         break;
+      case Z.RACES:
+        if (dx) st.races = Math.max(0, Math.min(raceNodes.length - 1, st.races + dx));
+        else if (dy < 0) {
+          // Up to the keys; ↓ has nothing below the season (the weather and prices don't take focus).
+          var keys = document.querySelectorAll('#drawer .key'), best = 0, near = 1e9;
+          for (var k = 0; k < keys.length; k++) {
+            var d = Math.abs(keys[k].offsetLeft + keys[k].offsetWidth / 2 - raceX(st.races));
+            if (d < near) { near = d; best = k; }
+          }
+          st.zone = Z.DRAWER;
+          st.drawer = best;
+        }
+        break;
       case Z.DRAWER:
         if (dx) st.drawer = Math.max(0, Math.min(drawerItems.length - 1, st.drawer + dx));
+        else if (dy > 0) { if (raceNodes.length) st.zone = Z.RACES; }
         else if (dy < 0) { closeDrawer(); return; }
         break;
       case Z.APPS:
@@ -1760,9 +1945,10 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.RACEINFO) { closeRaceInfo(); return; }
     if (st.zone === Z.WALL) { cancelWallpaper(false); return; }
     if (sheetOpen()) { closeSheets(); return; }
-    if (st.zone === Z.DRAWER) { closeDrawer(); return; }
+    if (inDrawer()) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
     if (TV.hasHome()) { openLeave(); return; }
     TV.back();
@@ -1772,14 +1958,15 @@
   function hover(node, zone, index) {
     node.onmouseover = function () {
       if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.LEAVE || zone === Z.WALL))) return;
-      if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
-      if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
+      if ((zone === Z.DRAWER || zone === Z.RACES) && !inDrawer()) return;
+      if (zone !== Z.DRAWER && zone !== Z.RACES && inDrawer() && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < topMin()) return;   // the tabs are hidden without the picks
-      if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
+      if (zone === Z.SHELF && inDrawer()) closeDrawer();
       st.zone = zone;
       if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
       else if (zone === Z.CARDS) st.card = index;
       else if (zone === Z.SHELF) st.shelf = index;
+      else if (zone === Z.RACES) st.races = index;
       else if (zone === Z.DRAWER) st.drawer = index;
       else if (zone === Z.APPS) st.grid = index;
       else if (zone === Z.SETTINGS) st.row = index;
@@ -2058,13 +2245,15 @@
   Data.onChange(function () {
     renderQuotes();
     renderCards();
+    renderRaces();
     renderPanels();
     checkNight();
   });
 
-  /** drawer_first: the home screen rests with the drawer open (shelf in the middle, inputs and weather below). */
+  /** drawer_first: the home screen rests with the drawer open (the keys, the weather, and the season at the bottom). */
   function restInDrawer() {
     if (!CONFIG.drawerFirst || !drawerItems.length || st.zone !== Z.SHELF) return;
+    // On the keys, as before: the season below arrives when the fetch does, and ↓ reaches it then.
     st.zone = Z.DRAWER;
     st.drawer = 0;
     updateFocus();

@@ -362,6 +362,154 @@ var Data = (function () {
     })(0);
   }
 
+  // MARK: - Formula 1
+
+  // The season's schedule, then the top three of each race from Jolpica (Ergast's successor): no key, and it allows
+  // any page to read it, so the TV's own file:// home screen can.
+  var F1 = 'https://api.jolpi.ca/ergast/f1/current';
+  var F1_STALE = 6 * 3600000;   // a race weekend changes it; six hours keeps the row current without asking often
+  // The teams' colours, for the bar beside each driver (2026's; a new team reads grey until it's added).
+  var TEAMS = {mercedes: '#27F4D2', ferrari: '#E8002D', red_bull: '#3671C6', mclaren: '#FF8000',
+    aston_martin: '#229971', alpine: '#FF87BC', williams: '#64C4FF', rb: '#6692FF', racing_bulls: '#6692FF',
+    sauber: '#52E252', audi: '#F50537', haas: '#B6BABD', cadillac: '#C6A664'};
+  var races = null, racesAt = 0, racesVersion = 0, fetchingRaces = false, racesRetryAt = 0;
+
+  (function () {
+    var c = stored('races');
+    // Only a season with the weekend's sessions (an older cache is fetched again at once).
+    if (c && c.list && c.list.length && c.list[0].sessions) { races = c.list; racesAt = c.at || 0; racesVersion = 1; }
+  })();
+
+  /** The weekend's sessions, in the order the schedule lists them; `Race` is the race itself. */
+  var SESSIONS = [['FirstPractice', 'fp1'], ['SecondPractice', 'fp2'], ['ThirdPractice', 'fp3'],
+    ['SprintQualifying', 'sq'], ['SprintShootout', 'sq'], ['Sprint', 'sprint'], ['Qualifying', 'q']];
+
+  /** A session's time in ms: its date and UTC time, or noon local when the time isn't known (or it's 0). */
+  function sessionTime(s) {
+    var d = /^(\d+)-(\d+)-(\d+)/.exec((s && s.date) || '');
+    if (!d) return 0;
+    var t = /^(\d+):(\d+)/.exec((s && s.time) || '');
+    return t ? Date.UTC(+d[1], d[2] - 1, +d[3], +t[1], +t[2]) : new Date(+d[1], d[2] - 1, +d[3], 12).getTime();
+  }
+
+  /** The season from the schedule: [{round, season, name, date, at, city, country, podium: [], sessions: []}]. */
+  function parseSchedule(body) {
+    var list = body && body.MRData && body.MRData.RaceTable && body.MRData.RaceTable.Races, out = [];
+    for (var i = 0; list && i < list.length; i++) {
+      var r = list[i], loc = (r.Circuit && r.Circuit.Location) || {}, d = /^(\d+)-(\d+)-(\d+)$/.exec(r.date || '');
+      // The sessions as the weekend has them: practice, a sprint's own qualifying, the sprint, qualifying.
+      var sessions = [];
+      for (var s = 0; s < SESSIONS.length; s++) {
+        if (r[SESSIONS[s][0]]) sessions.push({k: SESSIONS[s][1], at: sessionTime(r[SESSIONS[s][0]])});
+      }
+      sessions.push({k: 'race', at: sessionTime(r)});
+      sessions.sort(function (a, b) { return (a.at || 1e15) - (b.at || 1e15); });
+      out.push({
+        round: parseInt(r.round, 10),
+        season: r.season || '',
+        name: r.raceName || '',
+        // The race's own date, at noon, so a clock change at the circuit can't move it to another day.
+        date: d ? new Date(+d[1], d[2] - 1, +d[3], 12).getTime() : 0,
+        at: sessionTime(r),
+        city: loc.locality || '', country: loc.country || '', podium: [], sessions: sessions
+      });
+    }
+    return out;
+  }
+
+  /** One place of each race (a results/1, /2 or /3 page), into the season already parsed. */
+  function parsePodium(body, list) {
+    var found = body && body.MRData && body.MRData.RaceTable && body.MRData.RaceTable.Races;
+    for (var i = 0; found && i < found.length; i++) {
+      var r = found[i], x = r.Results && r.Results[0], place = parseInt(r.round, 10), race = null;
+      if (!x) continue;
+      for (var j = 0; j < list.length; j++) if (list[j].round === place) race = list[j];
+      var p = parseInt(x.position, 10);
+      if (!race || !(p >= 1 && p <= 3)) continue;
+      var dr = x.Driver || {}, name = dr.familyName || dr.driverId || '';
+      race.podium[p - 1] = {
+        p: p,
+        code: dr.code || name.substring(0, 3).toUpperCase(),
+        name: name,
+        team: (x.Constructor && x.Constructor.constructorId) || '',
+        teamName: (x.Constructor && x.Constructor.name) || ''
+      };
+    }
+  }
+
+  /** A race's classification, in order: [{p, code, name, full, teamId, teamName, time}]. */
+  function parseResults(body) {
+    var found = body && body.MRData && body.MRData.RaceTable && body.MRData.RaceTable.Races;
+    var list = found && found[0] && found[0].Results, out = [];
+    for (var i = 0; list && i < list.length; i++) {
+      var x = list[i], dr = x.Driver || {}, team = x.Constructor || {}, name = dr.familyName || dr.driverId || '';
+      if (!dr.driverId) continue;
+      out.push({
+        p: parseInt(x.position, 10) || 0,
+        code: dr.code || name.substring(0, 3).toUpperCase(),
+        name: name,
+        full: ((dr.givenName || '') + ' ' + (dr.familyName || '')).replace(/^\s+|\s+$/g, ''),
+        teamId: team.constructorId || '',
+        teamName: team.name || '',
+        // The winner's race time, a gap for the rest, or why they stopped (a lap down, retired).
+        time: (x.Time && x.Time.time) || x.status || ''
+      });
+    }
+    return out;
+  }
+
+  // A finished race never changes, so its classification is kept for good: a window opened again is instant.
+  var raceWaiting = {}, raceTried = {};
+
+  /** A race's full classification, already fetched once: raceResults(race, done), or done([]) if it isn't there. */
+  function raceResults(race, done) {
+    var key = 'race.' + race.season + '.' + race.round, c = stored(key);
+    if (c && c.list && c.list.length) { done(c.list); return; }
+    // A failed fetch is tried again a minute later, not on every key press.
+    if (raceTried[key] && Date.now() - raceTried[key] < 60000) { done([]); return; }
+    if (raceWaiting[key]) { raceWaiting[key].push(done); return; }
+    raceWaiting[key] = [done];
+    function finish(list) {
+      var fns = raceWaiting[key] || [];
+      delete raceWaiting[key];
+      if (list && list.length) store(key, {list: list});
+      for (var i = 0; i < fns.length; i++) fns[i](list || []);
+    }
+    get(F1 + '/' + race.round + '/results.json?limit=100', {}, function (err, body) {
+      if (err) { raceTried[key] = Date.now(); finish(null); return; }
+      finish(parseResults(body));
+    });
+  }
+
+  function refreshRaces() {
+    var now = Date.now();
+    if (fetchingRaces || now < racesRetryAt) return;
+    if (races && now >= racesAt && now - racesAt < F1_STALE) return;
+    fetchingRaces = true;
+    get(F1 + '.json', {}, function (err, body) {
+      if (err) { fetchingRaces = false; racesRetryAt = Date.now() + 15 * 60000; return; }
+      var list = parseSchedule(body), page = 1, missed = 0;
+      (function next() {
+        if (page > 3) {
+          fetchingRaces = false;
+          races = list;
+          racesVersion++;
+          // A results page that failed: the season is shown, and asked for again in a quarter of an hour.
+          racesAt = missed ? 0 : Date.now();
+          if (missed) racesRetryAt = Date.now() + 15 * 60000;
+          store('races', {list: list, at: racesAt});
+          changed();
+          return;
+        }
+        get(F1 + '/results/' + page + '.json', {}, function (e, b) {
+          if (e) missed++; else parsePodium(b, list);
+          page++;
+          next();
+        });
+      })();
+    });
+  }
+
   // MARK: - Picks (TMDB)
 
   var KEY = Prefs.tmdbKey();
@@ -697,7 +845,7 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRaces(); refreshRecs(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
@@ -708,6 +856,12 @@ var Data = (function () {
     changes: changes,
     get pricesAt() { return pricesAt; },
     activeCoins: activeCoins,
+    /** The Formula 1 season: [{round, season, name, date, at, city, country, podium: [{p, code, name, team, teamName}], sessions: [{k, at}]}], or null. */
+    get races() { return races; },
+    /** Bumped each time a new season arrives, so the row is drawn again. */
+    get racesVersion() { return racesVersion; },
+    raceResults: raceResults,
+    teamColor: function (id) { return TEAMS[id] || '#8E8E93'; },
     hasKey: function () { return !!KEY; },
     checkKey: checkKey,
     /** A key typed (or removed) on the TV: the picks come again with it, or go. */

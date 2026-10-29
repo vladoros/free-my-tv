@@ -311,8 +311,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
   never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), your Immich server (with `immich_server` and its key), Trakt (with a `trakt_client_id`,
-  once the person signs in on the TV) and GitHub's releases (Updates): new sources (such as Stremio) must not add
-  network calls without the owner's OK.
+  once the person signs in on the TV) and GitHub's releases (Updates); on LG and Samsung, `web/` also reads Jolpica
+  (`api.jolpi.ca`, the community successor to Ergast) for the Formula 1 season, its podiums and a race's full results:
+  new sources (such as Stremio) must not add network calls without the owner's OK.
 - Trakt (`Trakt`, Google TV only) needs the person's own API app: `trakt_client_id` (the Client ID only: device code
   with PKCE, so no secret is built in). Until they sign in on the Picks screen, nothing talks to `api.trakt.tv`. The
   tokens stay in `:home`'s private `trakt` preferences, are never logged and never follow a redirect, and only `:home`
@@ -572,6 +573,14 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   Tizen 5 (`TV.canOpenSettings`).
   `web/home.js` follows `HomeView`'s layout and behavior, so a design change on
   Android belongs there too (the `tweaks` look settings, Font, the wallpaper picker and the shelf editor's Undo, exist only in `web/`).
+  The drawer is the whole screen: the home slides away for it (1020 px, `drawer-open` in home.css) and the inputs, the
+  weather and prices, and the Formula 1 season fill 110 to 972. The season is the row under the keys, above the weather and
+  prices cards and as tall as them (`Data.races` in data.js: Jolpica's schedule and one results page per podium place, cached
+  six hours in localStorage): a card per race with the top three and their teams, or, before it's run, when each of the
+  weekend's sessions starts. The latest run is focused when it opens, ← → along the season,
+  OK opens the race's full classification (`Data.raceResults`, kept in localStorage for good once a race is run; the
+  podium already there shows while it comes) or the weekend's timetable, Back returns to the row, ↑ to the keys and
+  ↓ has nothing below it (the weather and prices take no focus); from the keys ↓ reaches the season, ↑ closes the drawer.
   The picks come only from the apps on the shelf (`Data.setApps(shelf)`), each service fetched on its own so every app has a share;
   Plex and YouTube are `SERVICES` entries flagged free-with-ads (their free titles count, with no release window). The web app
   has no title links: Netflix on Tizen 5 ignored the `PAYLOAD` meta tag and a search address, so a pick opens its app's home.
