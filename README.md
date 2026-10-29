@@ -338,6 +338,8 @@ When the picks are empty (or there's no TMDB key), the screensaver shows those p
 
 The picks come only from the apps on the shelf: a streaming service that isn't there (or isn't on TMDB for your country) gets no titles. Each shelf app has a share of them, and Plex and YouTube, which are free with ads, offer their most popular titles rather than only new ones. Press OK on a pick and the app opens on its home: the web app can't open the title itself (that needs the app's own title ID, and Netflix on a Samsung TV ignored every launch format tried), and `watchmode_key` only works on Android.
 
+The drawer (press Down from the shelf) also has the Formula 1 season, a row under the keys and above the weather: one card per race with the top three and their teams, the weekend's sessions for a race still to come, and OK for the whole classification. It comes from Jolpica, needs no key, and the weather and prices move up if it can't be reached.
+
 In List, the rows fade out where the list goes on above or below. A held OK or Back acts once. With the TV's reduced-motion setting on, only fades animate.
 
 On Samsung, Back on the first screen offers *Stay* or *Samsung Home* when the TV has Samsung's own Home app (`com.samsung.tv.csfs`); without it, Back works as before.
