@@ -15,7 +15,8 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
-           'shelfApps': [], 'drawerFirst': False, 'openPicksIn': 'apps', 'clockFormat': 'auto'}
+           'shelfApps': [], 'drawerFirst': False, 'openPicksIn': 'apps', 'clockFormat': 'auto', 'traktClientId': '',
+           'immichServer': ''}
 
 
 def config_from_args(args):
@@ -26,6 +27,27 @@ def config_from_args(args):
     if '--config' in args:
         path = os.path.abspath(args[args.index('--config') + 1])
     return read_config(path)
+
+
+def lan_server(key, value):
+    """An Immich-style server address: https:// anywhere, plain http:// only on your own network (as build.sh checks)."""
+    value = value.strip().rstrip('/')
+    if not value or value.startswith('https://'):
+        return value
+    m = re.match(r'^http://([^/?:]+)(:\d+)?([/?].*)?$', value, re.I)
+    if m:
+        host = m.group(1).lower()
+        ip = re.match(r'^(\d+)\.(\d+)\.\d+\.\d+$', host)
+        if ip:
+            a, b = int(ip.group(1)), int(ip.group(2))
+            ok = a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+        else:
+            ok = bool(re.match(r'^[a-z0-9-]+$', host) or re.match(r'^[a-z0-9.-]+\.(local|lan|home\.arpa)$', host))
+        if ok:
+            return value
+        sys.exit('config.properties: %s in plain http:// must be on your own network (a private address like '
+                 '192.168.1.20, or a .local, .lan or .home.arpa name); use https:// for anything else. Got "%s"' % (key, value))
+    sys.exit('config.properties: %s must start with http:// or https:// (got "%s")' % (key, value))
 
 
 def read_config(path):
@@ -69,6 +91,8 @@ def read_config(path):
         'openPicksIn': 'nuvio' if values.get('open_picks_in', '').strip().lower() == 'nuvio' else 'apps',
         # 24 or 12 forces the clock; auto follows the language's catalogue.
         'clockFormat': values.get('clock_format', '').strip() if values.get('clock_format', '').strip() in ('24', '12') else 'auto',
+        'traktClientId': values.get('trakt_client_id', ''),
+        'immichServer': lan_server('immich_server', values.get('immich_server', '')),
     }
 
 
