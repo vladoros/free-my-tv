@@ -433,6 +433,25 @@
       hover(r, Z.TOP, 3 + b);
     }
     placeButtons();
+    renderStatus();
+  }
+
+  // MARK: - Status icons: Wi-Fi or Ethernet after the title (Bluetooth and a USB drive are Android's: no web API shows them)
+
+  var network = '';
+
+  function renderStatus() {
+    var box = $('status'), titleShown = !/\b(picks-off|no-key|layout-list)\b/.test(body.className);
+    box.innerHTML = '';
+    if (Prefs.statusIcons() && network) sym(network, box);
+    box.style.left = (76 + (titleShown ? $('title').offsetWidth + 28 : 0)) + 'px';
+  }
+
+  function updateStatus() {
+    if (!Prefs.statusIcons()) { network = ''; renderStatus(); return; }
+    TV.network(function (now) {
+      if (now !== network) { network = now; renderStatus(); }
+    });
   }
 
   function renderQuotes() {
@@ -1091,6 +1110,8 @@
         step: function (d) { cycle('controls', ['icons', 'both', 'text'], Prefs.controls(), d); applyLook(); }},
       {label: tr('Font'), value: clockFontName(Prefs.clockFont()),
         step: function (d) { cycle('clockFont', ['inter', 'manrope', 'geist', 'newsreader'], Prefs.clockFont(), d); applyLook(); }},
+      {label: tr('Status icons'), toggle: Prefs.statusIcons(),
+        step: function () { Prefs.set('statusIcons', !Prefs.statusIcons()); updateStatus(); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
       {label: tr('City'), value: Prefs.city() || '—', opens: true, city: true,
@@ -1111,7 +1132,12 @@
       })(i);
     }
     rows.push({label: tr('TMDB key'), value: Prefs.tmdbKey().length >= 4 ? '•••• ' + Prefs.tmdbKey().slice(-4) : tr('Not set'), opens: true, tmdb: true,
-      step: function (d) { if (d >= 0) openKey(); }});
+      step: function (d) { if (d >= 0) openKey('tmdb'); }});
+    if (Data.immichServer()) {
+      rows.push({label: tr('Immich key'), value: Prefs.immichKey().length >= 4 ? '•••• ' + Prefs.immichKey().slice(-4) : tr('Not set'), opens: true,
+        immich: true, step: function (d) { if (d >= 0) openKey('immich'); }});
+      if (Prefs.immichKey()) rows.push({label: tr('My Photos'), value: photoName(), step: function (d) { cyclePhotos(d); }});
+    }
     var sv = Data.services();
     if (sv.length) {
       var someOff = false;   // only the services this TV has count
@@ -1130,10 +1156,57 @@
       rows.push({label: tr('Open picks in'), value: open === 'nuvio' ? 'Nuvio' : tr('Streaming apps'),
         step: function (d) { cycle('openPicks', ['apps', 'nuvio'], open, d); }});
     }
+    if (Data.traktAvailable()) {
+      rows.push({label: 'Trakt', value: traktValue(), opens: true, step: function (d) { if (d >= 0) traktOk(); }});
+    }
     rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
     if (TV.canOpenSettings) rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
+  }
+
+  // MARK: - Trakt and Immich rows
+
+  var traktAsking = 0;   // until when OK on a signed-in Trakt row signs out (the row says so)
+
+  function traktValue() {
+    if (traktAsking > Date.now()) return tr('Sign out');
+    var code = Data.traktCode();
+    if (code) return trf('{url}, code {code}', {url: Data.traktUrl(), code: code});
+    if (Data.traktBusy()) return tr('Connecting…');
+    if (Data.traktSignedIn()) return Data.traktUser() || tr('Signed in');
+    return Data.traktMessage() || tr('Sign in');
+  }
+
+  /** OK: a code to sign in with, or (twice, the row asks in between) sign out. */
+  function traktOk() {
+    if (Data.traktSignedIn()) {
+      if (traktAsking > Date.now()) { traktAsking = 0; Data.traktSignOut(); return; }
+      traktAsking = Date.now() + 6000;
+      setTimeout(function () { if (st.zone === Z.SETTINGS) renderSettings(); }, 6100);
+    } else {
+      Data.traktSignIn();
+    }
+  }
+
+  function photoName() {
+    var source = Prefs.photoSource();
+    return source === 'default' ? tr('photos|Default') : source === 'immich' ? tr('Immich: all')
+      : trf('Immich: {album}', {album: Prefs.photoAlbumName()});
+  }
+
+  /** My Photos: the picks' photos, all of Immich, then each of its albums. */
+  function cyclePhotos(d) {
+    var list = [{source: 'default'}, {source: 'immich'}], albums = Data.immichAlbums(), at = 0, i;
+    for (i = 0; i < albums.length; i++) list.push({source: 'album', id: albums[i].id, name: albums[i].name});
+    for (i = 0; i < list.length; i++) {
+      if (list[i].source === Prefs.photoSource() && (list[i].source !== 'album' || list[i].id === Prefs.photoAlbum())) at = i;
+    }
+    var c = list[(at + (d || 1) + list.length) % list.length];
+    Prefs.set('photoSource', c.source);
+    Prefs.set('photoAlbum', c.id || '');
+    Prefs.set('photoAlbumName', c.name || '');
+    Data.immichChanged();
   }
 
   function cycle(name, values, current, d) {
@@ -1394,8 +1467,11 @@
   // MARK: - TMDB key: typed on the TV, so builds without one (the releases) get the picks too; TMDB checks it first
 
   var keyStatus = '', keyWarn = false, keyTimer = 0, keySeq = 0, keyAsking = false;
+  var keyFor = 'tmdb';   // the sheet also takes the Immich server's key ('immich')
 
-  function keyRows() { return keyAsking ? 2 : Prefs.tmdbKeyOnTV() ? 3 : 2; }
+  function keyHas() { return keyFor === 'immich' ? !!Prefs.immichKey() : Prefs.tmdbKeyOnTV(); }
+
+  function keyRows() { return keyAsking ? 2 : keyHas() ? 3 : 2; }
 
   function keySteps() {
     return tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.") + '\n'
@@ -1406,7 +1482,8 @@
   function renderKey() {
     var box = $('keypick').firstChild, old = fieldOf('keypick'), typed = old ? old.value : '', inField = typingIn('keypick');
     box.innerHTML = '';
-    el('div', 'title', box, keyAsking ? tr('Remove the TMDB key?') : tr('TMDB key'));
+    var immich = keyFor === 'immich';
+    el('div', 'title', box, immich ? (keyAsking ? tr('Remove the key') : tr('Immich key')) : keyAsking ? tr('Remove the TMDB key?') : tr('TMDB key'));
     var list = el('div', 'list', box), holder = el('div', 'rows', list);
     list.style.height = keyRows() * 78 + 'px';
     if (keyAsking) {
@@ -1415,21 +1492,23 @@
       updateFocus();
       return;
     }
-    var keyField = textField(holder, Z.KEY, typed, tr('API Read Access Token or API Key'), tr('TMDB key'));
+    var keyField = textField(holder, Z.KEY, typed, immich ? tr('Immich key') : tr('API Read Access Token or API Key'),
+      immich ? tr('Immich key') : tr('TMDB key'));
     // A v3 key is lowercase hex: the TV's keyboard mustn't capitalize it (the city's field wants capitals).
     keyField.setAttribute('autocapitalize', 'none');
     keyField.setAttribute('autocorrect', 'off');
     var save = el('div', 'row', holder, tr('Save'));
     sym('chevron_right', el('span', 'value', save));
     hover(save, Z.KEY, 1);
-    if (Prefs.tmdbKeyOnTV()) hover(el('div', 'row', holder, tr('Remove the key')), Z.KEY, 2);
+    if (keyHas()) hover(el('div', 'row', holder, tr('Remove the key')), Z.KEY, 2);
     if (keyStatus) setClass(el('div', 'hint', box, keyStatus), 'warn', keyWarn);
-    el('div', 'hint steps', box, keySteps());
+    if (!immich) el('div', 'hint steps', box, keySteps());
     if (inField) openField('keypick');
     updateFocus();
   }
 
-  function openKey() {
+  function openKey(which) {
+    keyFor = which;
     setClass($('settings'), 'open', false);
     st.zone = Z.KEY;
     st.key = 0;
@@ -1458,7 +1537,24 @@
     return /^[A-Za-z0-9._-]{16,1024}$/.test(key) ? key : '';
   }
 
+  /** The server answers with the albums when it takes the key: that's the check, and the albums are the next row's choices. */
+  function saveImmichKey() {
+    var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed);
+    closeField('keypick');
+    if (!typed.replace(/\s+/g, '')) { st.key = 0; openField('keypick'); updateFocus(); return; }
+    if (!key) { setKeyStatus(tr('Immich refused this key.'), true); return; }
+    var mine = ++keySeq;   // an answer for a sheet already closed is dropped
+    Data.immichKey(key, function (err) {
+      if (mine !== keySeq || st.zone !== Z.KEY) return;
+      if (err) { setKeyStatus(err.rejected ? tr('Immich refused this key.') : trf("Couldn't reach Immich: {error}", {error: err.message}), true); return; }
+      Prefs.set('immichKey', key);
+      Data.immichChanged();
+      closeKey();
+    });
+  }
+
   function saveKey() {
+    if (keyFor === 'immich') { saveImmichKey(); return; }
     var f = fieldOf('keypick'), typed = f ? f.value : '', key = cleanKey(typed);
     closeField('keypick');
     if (!typed.replace(/\s+/g, '')) { st.key = 0; openField('keypick'); updateFocus(); return; }
@@ -1478,6 +1574,12 @@
 
   /** Back to config.properties' key (none in the releases): the picks go. */
   function removeKey() {
+    if (keyFor === 'immich') {
+      Prefs.set('immichKey', undefined);
+      closeKey();
+      Data.immichChanged();
+      return;
+    }
     Prefs.set('tmdbKey', undefined);   // left out of the saved settings
     closeKey();
     Data.keyChanged();
@@ -1494,7 +1596,7 @@
     var f = fieldOf('keypick');
     if (f) f.value = '';
     openSettings();
-    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].tmdb) st.row = i;
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i][keyFor]) st.row = i;
     updateFocus();
   }
 
@@ -2035,7 +2137,8 @@
 
   /** The screensaver's photos: the picks with an app on the TV, or the wallpapers when there are no picks. */
   function saverPhotos() {
-    var out = [], picks = Data.showcase(), i;
+    var out = Data.immichPhotos(), picks = Data.showcase(), i;   // your own photos from Immich, when it's set up
+    if (out.length) return out;
     for (i = 0; i < picks.length; i++) {
       if (picks[i].backdrop && Data.usable(picks[i].app)) out.push({src: Data.image(picks[i].backdrop, 'original'), title: picks[i].title, app: picks[i].app});
     }
@@ -2204,6 +2307,7 @@
     renderShelf();
     renderDrawer();
     renderClock();
+    renderStatus();
     checkNight();
     if (st.zone === Z.SETTINGS) renderSettings();
     updateFocus();
@@ -2243,6 +2347,7 @@
   }
 
   Data.onChange(function () {
+    if (st.zone === Z.SETTINGS) renderSettings();   // the Trakt code, the Immich albums
     renderQuotes();
     renderCards();
     renderRaces();
@@ -2284,6 +2389,7 @@
   renderTop();
   applyDim();
   tickClock();
+  updateStatus();
   if (Prefs.rotation() === 'open') stepWallpaper(1, true);   // Home just opened
   loadApps(function () {
     renderAll();
@@ -2295,6 +2401,7 @@
     checkRotation();
     Data.refresh();
     applyDim();   // automatic: medium from 22:00, off again at 07:00
+    updateStatus();
     if (!saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {
       if (saverMode() === 'clock') showAmbient(); else showSaver();
     }

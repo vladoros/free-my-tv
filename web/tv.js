@@ -510,6 +510,31 @@ var TV = (function () {
     finish();
   }
 
+  /** How the TV is connected: done('ethernet'), done('wifi') or done('') (no address, or no answer). */
+  function network(done) {
+    if (webos) {
+      luna('luna://com.palm.connectionmanager/getStatus', {}, function (res) {
+        var wired = (res && res.wired) || {}, wifi = (res && res.wifi) || {};
+        done(wired.state === 'connected' ? 'ethernet' : wifi.state === 'connected' ? 'wifi' : '');
+      });
+    } else if (samsung) {
+      // As in About: an address says it's connected, `status` doesn't on some firmware.
+      var up = function (name, got) {
+        try {
+          window.tizen.systeminfo.getPropertyValue(name, function (v) {
+            got(!!v && !!v.ipAddress && v.ipAddress !== '0.0.0.0' && /^\d+\.\d+\.\d+\.\d+$/.test(v.ipAddress));
+          }, function () { got(false); });
+        } catch (e) { got(false); }
+      };
+      up('ETHERNET_NETWORK', function (wired) {
+        if (wired) { done('ethernet'); return; }
+        up('WIFI_NETWORK', function (wifi) { done(wifi ? 'wifi' : ''); });
+      });
+    } else {
+      setTimeout(function () { done('wifi'); }, 0);
+    }
+  }
+
   // MARK: - The TV, whichever it is
 
   return {
@@ -607,6 +632,9 @@ var TV = (function () {
         done(list);
       });
     },
+
+    /** 'ethernet', 'wifi' or '': how the TV is connected right now. */
+    network: network,
 
     /** The TV's own settings; done(ok). */
     settings: function (done) {

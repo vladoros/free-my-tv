@@ -314,7 +314,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   once the person signs in on the TV) and GitHub's releases (Updates); on LG and Samsung, `web/` also reads Jolpica
   (`api.jolpi.ca`, the community successor to Ergast) for the Formula 1 season, its podiums and a race's full results:
   new sources (such as Stremio) must not add network calls without the owner's OK.
-- Trakt (`Trakt`, Google TV only) needs the person's own API app: `trakt_client_id` (the Client ID only: device code
+- Trakt (`Trakt`; LG and Samsung have their own in `web/data.js`, below) needs the person's own API app: `trakt_client_id` (the Client ID only: device code
   with PKCE, so no secret is built in). Until they sign in on the Picks screen, nothing talks to `api.trakt.tv`. The
   tokens stay in `:home`'s private `trakt` preferences, are never logged and never follow a redirect, and only `:home`
   uses them (`Trakt.available()`): on Android 11 to 12L the screensaver's main process has no Trakt, and the saved list
@@ -590,5 +590,15 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   `formatDate('format|h:mm a', at)` (the catalogue's SimpleDateFormat pattern, written by `web/strings.js`), and
   `tools/translate.py` reads those calls too. Built without a city (`--generic`), `web/zones.js`
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
+  Trakt, Immich and the status icons are in `web/` too. Trakt (`trakt_client_id` in `CONFIG`) is the same device
+  sign-in with PKCE in `Data` (its own `sha256`, as old TVs have no `crypto.subtle`), the tokens in localStorage
+  (`fmtv.trakt`) and one picks pool as on Android (`take`: in progress, then watchlist and recommended, then TMDB's); it
+  asks Trakt again only every 10 minutes (`last_activities`), and unlike Android it doesn't reuse the last list's
+  details. Immich (`immich_server` in `CONFIG`, checked in `tools/webapp.py` like `build.sh`'s `lan_server`) is the
+  screensaver's photos only, a random 40 every 6 hours as the server's `preview` size: the key is typed on the TV
+  (Home Settings > Immich key, in `Prefs`, since there is no adb) and goes in the image address as `?apiKey=`, because an
+  image can't carry a header; only the ids are cached. Status icons are Wi-Fi or Ethernet (`TV.network`: LG's
+  `connectionmanager`, Samsung's `ETHERNET_NETWORK` and `WIFI_NETWORK`); no web API shows Bluetooth or a USB drive.
+  None of these has run on a TV, only in a fake-network test and a DOM stand-in.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

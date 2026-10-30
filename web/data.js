@@ -71,6 +71,14 @@ var Prefs = (function () {
     weather: function () { return pick('weather', true); },
     /** OK on the screensaver opens the title it shows, in its app; any other key only closes it (off by default). */
     saverWatch: function () { return pick('saverWatch', false) === true; },
+    /** Wi-Fi or Ethernet beside the title (off by default). */
+    statusIcons: function () { return pick('statusIcons', false) === true; },
+    /** Your Immich server's API key: typed on the TV and kept here, never in the package. */
+    immichKey: function () { return String(pick('immichKey', '')).trim(); },
+    /** With an Immich server: 'default' (the picks' photos), 'immich' (all of it) or 'album' (photoAlbum, photoAlbumName). */
+    photoSource: function () { var v = pick('photoSource', 'immich'); return v === 'default' || v === 'album' ? v : 'immich'; },
+    photoAlbum: function () { return String(pick('photoAlbum', '')); },
+    photoAlbumName: function () { return String(pick('photoAlbumName', '')); },
     /** What the screensaver shows: 'photos' (the picks' photos, as it always has) or 'clock' (a clock and the weather). */
     saver: function () { return pick('saver', 'photos') === 'clock' ? 'clock' : 'photos'; },
     /** Dimming over the picture, for a dark room: 'off', 'low', 'medium', 'high' or 'auto' (medium at night). */
@@ -180,6 +188,24 @@ var Data = (function () {
     x.ontimeout = x.onerror = function () { if (!over) { over = true; done(new Error('no connection')); } };
     x.send();
   }
+
+  /** Any request: done(status, text), with status 0 when there was no answer. */
+  function send(method, url, headers, body, done) {
+    var x = new XMLHttpRequest();
+    var over = false;
+    x.open(method, url, true);
+    x.timeout = 20000;
+    for (var h in headers) if (headers.hasOwnProperty(h)) x.setRequestHeader(h, headers[h]);
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4 || over) return;
+      over = true;
+      done(x.status, x.responseText);
+    };
+    x.ontimeout = x.onerror = function () { if (!over) { over = true; done(0, ''); } };
+    x.send(body === null ? null : JSON.stringify(body));
+  }
+
+  function parse(text) { try { return JSON.parse(text); } catch (e) { return null; } }
 
   /**
    * Open-Meteo, over plain http where https fails: its certificate chains to Let's Encrypt's ISRG root, which 2015 and
@@ -582,11 +608,327 @@ var Data = (function () {
     }, key);
   }
 
+  // MARK: - Trakt: the picks start with what you're in the middle of, bring your watchlist and leave out what you've watched
+
+  var TRAKT = 'https://api.trakt.tv', TRAKT_EVERY = 10 * 60000, TRAKT_MAX = 6, TRAKT_WATCHLIST = 12, TRAKT_RECOMMENDED = 10, TRAKT_UP_NEXT = 8;
+  var PROGRESS = 1, LIKED = 2;   // pick.mine: in the middle of it; on the watchlist or recommended
+  var trakt = stored('trakt') || {};   // {access, refresh, expires, user}: this app's own storage, like the TMDB key
+  var traktCode = null, traktUrl = '', traktMessage = '', traktBusy = false, traktRun = 0, renewing = null;
+
+  function traktId() { return String(CONFIG.traktClientId || '').replace(/\s+/g, ''); }
+  function traktSignedIn() { return !!traktId() && !!trakt.refresh; }
+  function saveTrakt() { store('trakt', trakt); }
+
+  /** SHA-256 of an ASCII string, as bytes (PKCE; old TVs have no crypto.subtle). */
+  function sha256(text) {
+    var K = [], H = [], bytes = [], c = 0, n, i, j;
+    for (n = 2; c < 64; n++) {
+      var prime = true;
+      for (i = 2; i * i <= n; i++) if (n % i === 0) { prime = false; break; }
+      if (!prime) continue;
+      if (c < 8) H[c] = (Math.pow(n, 0.5) * 4294967296) | 0;
+      K[c++] = (Math.pow(n, 1 / 3) * 4294967296) | 0;
+    }
+    for (i = 0; i < text.length; i++) bytes.push(text.charCodeAt(i) & 255);
+    var bits = bytes.length * 8;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (bits >>> (i * 8)) & 255);
+    function rotr(x, k) { return (x >>> k) | (x << (32 - k)); }
+    for (var off = 0; off < bytes.length; off += 64) {
+      var w = [];
+      for (i = 0; i < 16; i++) w[i] = (bytes[off + i * 4] << 24) | (bytes[off + i * 4 + 1] << 16) | (bytes[off + i * 4 + 2] << 8) | bytes[off + i * 4 + 3];
+      for (i = 16; i < 64; i++) {
+        var s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+        var s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+      }
+      var v = H.slice();
+      for (i = 0; i < 64; i++) {
+        var t1 = (v[7] + (rotr(v[4], 6) ^ rotr(v[4], 11) ^ rotr(v[4], 25)) + ((v[4] & v[5]) ^ (~v[4] & v[6])) + K[i] + w[i]) | 0;
+        var t2 = ((rotr(v[0], 2) ^ rotr(v[0], 13) ^ rotr(v[0], 22)) + ((v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]))) | 0;
+        v = [(t1 + t2) | 0, v[0], v[1], v[2], (v[3] + t1) | 0, v[4], v[5], v[6]];
+      }
+      for (j = 0; j < 8; j++) H[j] = (H[j] + v[j]) | 0;
+    }
+    var out = [];
+    for (j = 0; j < 8; j++) out.push((H[j] >>> 24) & 255, (H[j] >>> 16) & 255, (H[j] >>> 8) & 255, H[j] & 255);
+    return out;
+  }
+
+  function base64Url(bytes) {
+    return btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function randomBytes(count) {
+    var out = [], i;
+    try {
+      var a = new Uint8Array(count);
+      window.crypto.getRandomValues(a);
+      for (i = 0; i < count; i++) out.push(a[i]);
+      return out;
+    } catch (e) {}
+    // shortcut: Math.random where the TV has no crypto.getRandomValues; the verifier only has to be unguessable for 10 minutes
+    for (i = 0; i < count; i++) out.push(Math.floor(Math.random() * 256));
+    return out;
+  }
+
+  function traktSend(method, path, body, token, done) {
+    var headers = {'Content-Type': 'application/json', 'trakt-api-version': '2', 'trakt-api-key': traktId()};
+    if (token) headers.Authorization = 'Bearer ' + token;
+    send(method, TRAKT + path, headers, body, done);
+  }
+
+  function traktSave(o) {
+    var created = o.created_at || Math.floor(Date.now() / 1000);
+    trakt.access = o.access_token;
+    trakt.refresh = o.refresh_token;
+    trakt.expires = (created + (o.expires_in || 86400)) * 1000;
+    saveTrakt();
+  }
+
+  /** A valid access token, renewed when it's about to expire (Trakt's last a day); one renewal at a time. done(error, token). */
+  function traktToken(done) {
+    if (!trakt.refresh) { done(new Error('not signed in')); return; }
+    if (Date.now() < trakt.expires - 3600000) { done(null, trakt.access); return; }
+    if (renewing) { renewing.push(done); return; }
+    renewing = [done];
+    var refresh = trakt.refresh;
+    function finish(err, token) {
+      var waiting = renewing;
+      renewing = null;
+      for (var i = 0; i < waiting.length; i++) waiting[i](err, token);
+    }
+    // Trakt now registers new apps with http://localhost only; older ones have the urn: one. The one that works is kept.
+    var uris = trakt.redirect ? [trakt.redirect] : ['http://localhost', 'urn:ietf:wg:oauth:2.0:oob'];
+    (function attempt(i) {
+      traktSend('POST', '/oauth/token', {refresh_token: refresh, client_id: traktId(), redirect_uri: uris[i],
+        grant_type: 'refresh_token'}, null, function (status, text) {
+        if ((status === 400 || status === 401) && i + 1 < uris.length) { attempt(i + 1); return; }
+        if (status === 400 || status === 401) { trakt = {}; saveTrakt(); changed(); finish(new Error('Trakt signed this TV out')); return; }
+        var o = status === 200 ? parse(text) : null;
+        if (!o) { finish(new Error('Trakt returned HTTP ' + status)); return; }
+        if (refresh !== trakt.refresh) { finish(new Error('not signed in')); return; }   // signed out (or in again) on the way
+        traktSave(o);
+        trakt.redirect = uris[i];
+        saveTrakt();
+        finish(null, trakt.access);
+      });
+    })(0);
+  }
+
+  function traktGet(path, done) {
+    traktToken(function (err, token) {
+      if (err) { done(err); return; }
+      traktSend('GET', path, null, token, function (status, text) {
+        var o = status === 200 ? parse(text) : null;
+        done(o === null ? new Error(status === 401 ? 'Trakt refused the sign-in' : 'Trakt returned HTTP ' + status) : null, o);
+      });
+    });
+  }
+
+  /** Trakt's device sign-in: a code to type at trakt.tv/activate, with PKCE so no secret is needed. */
+  function traktSignIn() {
+    if (traktBusy || !traktId()) return;
+    var run = ++traktRun, verifier = base64Url(randomBytes(48)), challenge = base64Url(sha256(verifier));
+    traktBusy = true;
+    traktCode = null;
+    traktMessage = '';
+    changed();
+    function end(message) {
+      if (run !== traktRun) return;
+      traktBusy = false;
+      traktCode = null;
+      traktMessage = message;
+      changed();
+    }
+    traktSend('POST', '/oauth/device/code', {client_id: traktId(), code_challenge: challenge, code_challenge_method: 'S256'}, null,
+      function (status, text) {
+        if (run !== traktRun) return;
+        var start = status === 200 ? parse(text) : null;
+        if (!start || !start.device_code) { end(trf("Couldn't sign in: {error}", {error: status ? 'HTTP ' + status : 'no connection'})); return; }
+        traktCode = start.user_code;
+        traktUrl = String(start.verification_url || 'https://trakt.tv/activate').replace(/^https?:\/\//, '');
+        changed();
+        var interval = Math.max(5, start.interval || 5) * 1000, until = Date.now() + (start.expires_in || 600) * 1000;
+        (function poll() {
+          setTimeout(function () {
+            if (run !== traktRun) return;
+            if (Date.now() >= until) { end(tr('The code expired. Press OK for a new one.')); return; }
+            traktSend('POST', '/oauth/device/token', {code: start.device_code, client_id: traktId(), code_verifier: verifier}, null,
+              function (st, tx) {
+                if (run !== traktRun) return;
+                var tokens = st === 200 ? parse(tx) : null;
+                if (tokens) { signedIn(tokens); return; }
+                if (st === 400 || st === 0) { poll(); return; }            // not typed yet (0: the network blinked)
+                if (st === 429) { interval += 1000; poll(); return; }      // too fast
+                if (st === 418) { end(tr('Sign-in declined on Trakt.')); return; }
+                if (st === 410) { end(tr('The code expired. Press OK for a new one.')); return; }
+                end(trf("Couldn't sign in: {error}", {error: 'HTTP ' + st}));
+              });
+          }, interval);
+        })();
+      });
+  }
+
+  function signedIn(tokens) {
+    traktSave(tokens);
+    trakt.user = '';
+    saveTrakt();
+    traktBusy = false;
+    traktCode = null;
+    traktMessage = '';
+    changed();
+    traktGet('/users/settings', function (err, o) {
+      trakt.user = (!err && o && o.user && o.user.username) || '';
+      saveTrakt();
+      changed();
+      refreshRecs();
+    });
+  }
+
+  /** Forgets the account here and tells Trakt to drop the token (best effort). */
+  function traktSignOut() {
+    var token = trakt.access;
+    traktRun++;
+    traktBusy = false;
+    traktCode = null;
+    traktMessage = '';
+    trakt = {};
+    saveTrakt();
+    changed();
+    refreshRecs();
+    if (token) traktSend('POST', '/oauth/revoke', {token: token, client_id: traktId()}, null, function () {});
+  }
+
+  /** {"movie": {"ids": {"tmdb": 603}}} → "movie:603" (Trakt's "show" is TMDB's "tv"); the recommendations come without the wrapper. */
+  function traktKey(item, type) {
+    var o = item && (item[type] || item), ids = o && o.ids;
+    return ids && ids.tmdb > 0 ? (type === 'show' ? 'tv' : 'movie') + ':' + ids.tmdb : null;
+  }
+
+  function newestFirst(field) {
+    return function (a, b) { return a[field] < b[field] ? 1 : a[field] > b[field] ? -1 : 0; };
+  }
+
+  function chain(steps, done) {
+    var i = 0;
+    (function next(err) {
+      if (err || i >= steps.length) { done(err || null); return; }
+      steps[i++](next);
+    })(null);
+  }
+
+  /** The watched titles, what's in progress, the watchlist and the recommendations, as keys ("movie:603", "tv:1396"). */
+  function traktLists(done) {
+    var out = {watched: {}, activity: '', progress: [], watchlist: {movie: [], show: []}, recommended: {movie: [], show: []}};
+    var watchedAt = {}, shows = [];
+
+    function has(key) { for (var i = 0; i < out.progress.length; i++) if (out.progress[i].key === key) return true; return false; }
+
+    // Also when each was last watched or marked watched: marking a show watched "on its release date" leaves
+    // last_watched_at in the past, but last_updated_at is when it was marked.
+    function watched(path, type) {
+      return function (next) {
+        traktGet(path, function (err, list) {
+          if (err) { next(err); return; }
+          for (var i = 0; i < list.length; i++) {
+            var key = traktKey(list[i], type);
+            if (!key) continue;
+            var a = list[i].last_watched_at || '', b = list[i].last_updated_at || '';
+            out.watched[key] = true;
+            watchedAt[key] = a > b ? a : b;
+            var onTrakt = type === 'show' ? list[i].show.ids.trakt : 0;
+            if (onTrakt > 0) shows.push({key: key, at: watchedAt[key], trakt: onTrakt});
+          }
+          next(null);
+        });
+      };
+    }
+
+    // Movies and episodes stopped partway, the newest first; one watched since it was paused is left out.
+    function playback(next) {
+      traktGet('/sync/playback?limit=20', function (err, list) {
+        if (err) { next(null); return; }
+        list.sort(newestFirst('paused_at'));
+        for (var i = 0; i < list.length; i++) {
+          var movie = list[i].type === 'movie', key = traktKey(list[i], movie ? 'movie' : 'show'), ep = movie ? null : list[i].episode;
+          if (!key || has(key) || (watchedAt[key] && watchedAt[key] >= (list[i].paused_at || ''))) continue;
+          out.progress.push({key: key, season: ep ? ep.season || 0 : 0, episode: ep ? ep.number || 0 : 0, paused: true});
+        }
+        next(null);
+      });
+    }
+
+    // The next episode of the shows watched most recently, when one is out.
+    function upNext(next) {
+      shows.sort(newestFirst('at'));
+      var asked = 0;
+      (function step(i) {
+        if (i >= shows.length || asked >= TRAKT_UP_NEXT) { next(null); return; }
+        if (has(shows[i].key)) { step(i + 1); return; }
+        asked++;
+        traktGet('/shows/' + shows[i].trakt + '/progress/watched?specials=false&count_specials=false', function (err, o) {
+          var ep = !err && o && o.next_episode;
+          if (ep && !(o.completed >= o.aired)) out.progress.push({key: shows[i].key, season: ep.season || 0, episode: ep.number || 0, paused: false});
+          step(i + 1);
+        });
+      })(0);
+    }
+
+    function watchlist(type) {
+      return function (next) {
+        traktGet('/sync/watchlist/' + type + 's', function (err, list) {
+          if (err) { next(err); return; }
+          list.sort(newestFirst('listed_at'));
+          for (var i = 0; i < list.length && out.watchlist[type].length < TRAKT_WATCHLIST; i++) {
+            var key = traktKey(list[i], type);
+            if (key && out.watchlist[type].indexOf(key) < 0) out.watchlist[type].push(key);
+          }
+          next(null);
+        });
+      };
+    }
+
+    function recommended(type) {
+      return function (next) {
+        traktGet('/recommendations/' + type + 's?ignore_collected=true&limit=' + TRAKT_RECOMMENDED * 2, function (err, list) {
+          for (var i = 0; !err && i < list.length && out.recommended[type].length < TRAKT_RECOMMENDED; i++) {
+            var key = traktKey(list[i], type);
+            if (key && out.recommended[type].indexOf(key) < 0) out.recommended[type].push(key);
+          }
+          next(null);
+        });
+      };
+    }
+
+    // The activity, playback, up next and recommendations fail on their own; the watched titles and the watchlist fail the whole.
+    chain([
+      function (next) { traktGet('/sync/last_activities', function (err, o) { if (!err && o) out.activity = o.all || ''; next(null); }); },
+      watched('/sync/watched/movies', 'movie'), watched('/sync/watched/shows?extended=noseasons', 'show'),
+      playback, upNext, watchlist('movie'), watchlist('show'), recommended('movie'), recommended('show')
+    ], function (err) { done(err, out); });
+  }
+
+  /** Lists when signed in (and Trakt answers), else null: the picks are TMDB's alone. */
+  function withTrakt(done) {
+    if (!traktSignedIn()) { done(null); return; }
+    traktLists(function (err, lists) {
+      if (err) { done(null); return; }
+      traktSeen = lists.activity;
+      traktCheckedAt = Date.now();
+      done(lists);
+    });
+  }
+
+  var traktSeen = '', traktCheckedAt = 0;   // Trakt's last change when the list was made, and when it was last asked
+
   var cache = stored('recs') || {};
   var picks = cache.picks || [], listAt = cache.listAt || 0, period = cache.period, listLang = cache.lang || '', stamp = cache.stamp || '';
   var fetchingRecs = false, failedAt = 0, recsError = '';
+  traktSeen = cache.traktSeen || '';
 
-  function saveRecs() { store('recs', {picks: picks, listAt: listAt, period: period, lang: listLang, stamp: stamp}); }
+  function saveRecs() { store('recs', {picks: picks, listAt: listAt, period: period, lang: listLang, stamp: stamp, traktSeen: traktSeen}); }
 
   function hourPeriod(d) {
     var h = d.getHours();
@@ -596,7 +938,7 @@ var Data = (function () {
   function sourceStamp() {
     var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '');
     for (var i = 0; i < SERVICES.length; i++) s += usable(SERVICES[i][1]) ? '1' : '0';
-    return s;
+    return s + (traktSignedIn() ? ':trakt ' + trakt.user : '');
   }
 
   function franchise(title) {
@@ -605,20 +947,33 @@ var Data = (function () {
     return (cut > 0 ? t.slice(0, cut) : t).replace(/^\s+|\s+$/g, '');
   }
 
-  /** This hour's picks (Prefs.cards()): movies ("movie"), shows ("tv") or both (null). */
+  /** Up to `max` in `out`, starting `start` into `from` (wrapping around), one per franchise. */
+  function take(out, seen, from, start, max) {
+    for (var i = 0; i < from.length && out.length < max; i++) {
+      var p = from[(start + i) % from.length], f = franchise(p.title);
+      if (!seen[f]) { seen[f] = true; out.push(p); }
+    }
+  }
+
+  /**
+   * This hour's picks (Prefs.cards()): movies ("movie"), shows ("tv") or both (null). Trakt's first: what you're in the
+   * middle of, up to 2 in 5, then the watchlist and Trakt's recommendations, up to 3 in 5 with those; then TMDB's.
+   */
   function now(kind) {
-    var list = [];
+    var list = [], progress = [], liked = [];
     if (!KEY || !Prefs.picks()) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
-      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) list.push(p);
+      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) {
+        (p.mine === PROGRESS ? progress : p.mine === LIKED ? liked : list).push(p);
+      }
     }
-    if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {}, n = Prefs.cards();
-    for (var j = 0; j < list.length && out.length < n; j++) {
-      var q = list[(hour * n + j) % list.length], f = franchise(q.title);
-      if (!seen[f]) { seen[f] = true; out.push(q); }
-    }
+    take(out, seen, progress, 0, Math.max(1, Math.floor(n * 2 / 5)));
+    take(out, seen, liked, hour * n, Math.max(2, Math.floor(n * 3 / 5)));
+    take(out, seen, list, hour * n, n);
+    take(out, seen, progress, 0, n);
+    take(out, seen, liked, hour * n, n);
     return out;
   }
 
@@ -687,6 +1042,7 @@ var Data = (function () {
         if (s && usable(s[1])) { p.app = s[1]; p.service = s[4]; }
       }
       if (p.service && p.app) parts.push(p.service);
+      if (p.tag) parts.unshift(p.tag);   // Trakt: "Up next: S2 E5", "On your watchlist"…
       p.meta = parts.join(' · ');
       title(p, o, function () {
         p.detailed = true;
@@ -742,7 +1098,55 @@ var Data = (function () {
     })();
   }
 
+  /** Trakt's titles with their details, kept when they're on one of the TV's apps: {progress, watchlist, recommended}. */
+  function traktPicks(lists, done) {
+    var out = {progress: [], watchlist: {movie: [], tv: []}, recommended: {movie: [], tv: []}};
+    if (!lists) { done(out); return; }
+    // shortcut: every Trakt title is looked up again at each fetch (no reuse of the last list's details), about 20 requests
+    function lookup(key, tag, mine, into, next) {
+      var cut = key.indexOf(':'), p = {id: parseInt(key.slice(cut + 1), 10), kind: key.slice(0, cut), title: '', backdrop: '', poster: '',
+        meta: '', app: null, detailed: false, tag: tag, mine: mine};
+      details(p, function (err) {
+        if (!err && p.app && p.backdrop) into.push(p);
+        next(!err && !!p.app && !!p.backdrop);
+      });
+    }
+    function progressTag(pr) {
+      return pr.season === 0 ? tr('Continue watching')
+        : pr.paused ? trf('Continue: S{s} E{e}', {s: pr.season, e: pr.episode}) : trf('Up next: S{s} E{e}', {s: pr.season, e: pr.episode});
+    }
+    var few = Math.floor(TRAKT_MAX * 2 / 5), count = {movie: 0, tv: 0};
+    each(lists.progress, function (pr, next) {
+      var kind = pr.key.indexOf('movie:') === 0 ? 'movie' : 'tv';
+      if (count[kind] >= few) { next(); return; }
+      lookup(pr.key, progressTag(pr), PROGRESS, out.progress, function (ok) { if (ok) count[kind]++; next(); });
+    }, function () {
+      var share = Math.floor((TRAKT_MAX - out.progress.length + 1) / 2), wl = out.watchlist, rec = out.recommended;
+      // Each title costs a request: once a kind has enough, the rest aren't looked up.
+      function fill(keys, tag, into, room, next) {
+        each(keys, function (k, n) {
+          if (!room() || lists.watched[k]) { n(); return; }
+          lookup(k, tag, LIKED, into, function () { n(); });
+        }, next);
+      }
+      fill(lists.watchlist.movie, tr('On your watchlist'), wl.movie, function () { return wl.movie.length < share; }, function () {
+        fill(lists.watchlist.show, tr('On your watchlist'), wl.tv, function () { return wl.tv.length < share; }, function () {
+          fill(lists.recommended.movie, tr('Recommended on Trakt'), rec.movie, function () { return wl.movie.length + rec.movie.length < share; }, function () {
+            fill(lists.recommended.show, tr('Recommended on Trakt'), rec.tv, function () { return wl.tv.length + rec.tv.length < share; }, function () {
+              done(out);
+            });
+          });
+        });
+      });
+    });
+  }
+
   function fetchList(done) {
+    withTrakt(function (lists) { fetchTmdb(lists, done); });
+  }
+
+  function fetchTmdb(lists, done) {
+    var watched = lists ? lists.watched : {};
     tmdb('/watch/providers/movie?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
       if (err) { done(err); return; }
       var ids = [];
@@ -761,6 +1165,7 @@ var Data = (function () {
           for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
           // Trending is only kept when it's on one of the TV's apps: the details say where.
           each(candidates, function (p, n) {
+            if (watched[keyOf(p)]) { n(); return; }
             details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
           }, next);
         });
@@ -769,20 +1174,50 @@ var Data = (function () {
           for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
           tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
             for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
-            var list = [], seen = {};
-            alternate(list, seen, hot.movie, hot.tv, 24);
-            alternate(list, seen, fresh.movie, fresh.tv, 24);
-            if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
-            picks = list;
-            done(null);
+            function unwatched(p) { return !watched[keyOf(p)]; }
+            fresh.movie = fresh.movie.filter(unwatched);
+            fresh.tv = fresh.tv.filter(unwatched);
+            traktPicks(lists, function (mine) {
+              // Trakt's (in progress, the watchlist, the recommendations), then trending and the new releases; movies and
+              // shows alternating, without repeats.
+              var list = [], seen = {}, i;
+              for (i = 0; i < mine.progress.length; i++) {
+                if (!seen[keyOf(mine.progress[i])]) { seen[keyOf(mine.progress[i])] = true; list.push(mine.progress[i]); }
+              }
+              alternate(list, seen, mine.watchlist.movie, mine.watchlist.tv, TRAKT_MAX);
+              alternate(list, seen, mine.recommended.movie, mine.recommended.tv, TRAKT_MAX);
+              var ours = list.length;
+              alternate(list, seen, hot.movie, hot.tv, ours + 24);
+              alternate(list, seen, fresh.movie, fresh.tv, ours + 24);
+              if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
+              picks = list;
+              done(null);
+            });
           });
         });
       });
     });
   }
 
-  /** Fetches the list when stale (6 h, a new period of the day, language, key or apps), then this hour's details. */
+  /** Signed in to Trakt: every 10 minutes one small request asks whether the account changed (marked watched, the watchlist). */
   function refreshRecs() {
+    if (!KEY || !Prefs.picks() || fetchingRecs || !installed.length) return;
+    var t = Date.now();
+    if (traktSignedIn() && sourceStamp() === stamp && traktSeen && (t - traktCheckedAt > TRAKT_EVERY || t < traktCheckedAt)) {
+      traktCheckedAt = t;
+      fetchingRecs = true;
+      traktGet('/sync/last_activities', function (err, o) {
+        fetchingRecs = false;
+        if (!err && o && o.all && o.all !== traktSeen) listAt = 0;   // the account changed: the list is made again
+        refreshNow();
+      });
+      return;
+    }
+    refreshNow();
+  }
+
+  /** Fetches the list when stale (6 h, a new period of the day, language, key, apps or account), then this hour's details. */
+  function refreshNow() {
     if (!KEY || !Prefs.picks() || fetchingRecs || !installed.length) return;
     var t = Date.now(), p = hourPeriod(new Date()), st = sourceStamp();
     if (st === stamp && failedAt && t - failedAt < 10 * 60000 && t >= failedAt) return;
@@ -825,6 +1260,83 @@ var Data = (function () {
     return out;
   }
 
+  // MARK: - Immich: your own photos on the screensaver, from your server (immich_server), with the key typed on the TV
+
+  var IMMICH_EVERY = 6 * 3600000, IMMICH_COUNT = 40, IMMICH_MIN_SIDE = 1080;
+  var photoCache = stored('immich') || {};   // {ids, at, stamp}: the ids only, the key never leaves Prefs
+  var fetchingPhotos = false, photoFailedAt = 0, albums = [];
+
+  function immichServer() { return CONFIG.immichServer || ''; }
+  function immichOn() { return !!immichServer() && !!Prefs.immichKey(); }
+  function photoStamp() { return Prefs.immichKey().slice(-6) + ':' + Prefs.photoSource() + ':' + Prefs.photoAlbum(); }
+
+  /** A request to the server with the key; never followed to another host (XHR would send the key along). */
+  function immich(method, path, key, body, done) {
+    send(method, immichServer() + path, {'x-api-key': key, Accept: 'application/json', 'Content-Type': 'application/json'}, body, done);
+  }
+
+  /** Whether the server takes this key (and the albums, to pick from): done(error), with error.rejected when it said no. */
+  function checkImmichKey(key, done) {
+    immich('GET', '/api/albums', key, null, function (status, text) {
+      var list = status === 200 ? parse(text) : null;
+      if (!list) {
+        var err = new Error(status ? 'HTTP ' + status : 'no connection');
+        err.rejected = status === 401 || status === 403;
+        done(err);
+        return;
+      }
+      readAlbums(list);
+      done(null);
+    });
+  }
+
+  function readAlbums(list) {
+    albums = [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].assetCount > 0) albums.push({id: String(list[i].id), name: String(list[i].albumName || '')});
+    }
+    albums.sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+  }
+
+  function loadAlbums() {
+    if (!immichOn() || albums.length) return;
+    checkImmichKey(Prefs.immichKey(), function (err) { if (!err) changed(); });
+  }
+
+  /** A random choice of the server's photos every 6 hours (or of one album), the large ones only. */
+  function refreshPhotos() {
+    if (!immichOn() || Prefs.photoSource() === 'default' || fetchingPhotos) return;
+    var t = Date.now(), st = photoStamp();
+    var fresh = photoCache.stamp === st && photoCache.ids && photoCache.ids.length && t >= photoCache.at && t - photoCache.at < IMMICH_EVERY;
+    if (fresh || (photoFailedAt && t >= photoFailedAt && t - photoFailedAt < 30 * 60000 && photoCache.stamp === st)) return;
+    var query = {size: IMMICH_COUNT * 2, type: 'IMAGE', withExif: true};
+    if (Prefs.photoSource() === 'album' && Prefs.photoAlbum()) query.albumIds = [Prefs.photoAlbum()];
+    fetchingPhotos = true;
+    immich('POST', '/api/search/random', Prefs.immichKey(), query, function (status, text) {
+      fetchingPhotos = false;
+      var found = status === 200 ? parse(text) : null, ids = [];
+      for (var i = 0; found && i < found.length && ids.length < IMMICH_COUNT; i++) {
+        var a = found[i], exif = a.exifInfo, w = exif && exif.exifImageWidth, h = exif && exif.exifImageHeight;
+        if (a.type !== 'IMAGE' || !/^[0-9a-fA-F-]{8,64}$/.test(a.id)) continue;
+        if (w > 0 && h > 0 && Math.min(w, h) < IMMICH_MIN_SIDE) continue;
+        ids.push(a.id);
+      }
+      if (!ids.length) { photoFailedAt = Date.now(); return; }   // the photos from before stay
+      photoFailedAt = 0;
+      photoCache = {ids: ids, at: Date.now(), stamp: st};
+      store('immich', photoCache);
+      changed();
+    });
+  }
+
+  /** The screensaver's photos from Immich ([{src}]), or none (not set up, or the picks' photos picked). */
+  function immichPhotos() {
+    if (!immichOn() || Prefs.photoSource() === 'default' || photoCache.stamp !== photoStamp() || !photoCache.ids) return [];
+    var out = [], base = immichServer() + '/api/assets/', tail = '/thumbnail?size=preview&apiKey=' + encodeURIComponent(Prefs.immichKey());
+    for (var i = 0; i < photoCache.ids.length; i++) out.push({src: base + photoCache.ids[i] + tail, title: ''});
+    return out;
+  }
+
   // MARK: - Formatting
 
   function fmt(v, digits) {
@@ -845,7 +1357,7 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRaces(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRaces(); refreshRecs(); refreshPhotos(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
@@ -862,6 +1374,22 @@ var Data = (function () {
     get racesVersion() { return racesVersion; },
     raceResults: raceResults,
     teamColor: function (id) { return TEAMS[id] || '#8E8E93'; },
+    /** Trakt (a Client ID in config.properties): the sign-in's state for Settings, and its two actions. */
+    traktAvailable: function () { return !!traktId(); },
+    traktSignedIn: traktSignedIn,
+    traktUser: function () { return trakt.user || ''; },
+    traktCode: function () { return traktBusy ? traktCode : null; },
+    traktUrl: function () { return traktUrl; },
+    traktBusy: function () { return traktBusy; },
+    traktMessage: function () { return traktMessage; },
+    traktSignIn: traktSignIn,
+    traktSignOut: traktSignOut,
+    immichServer: immichServer,
+    immichKey: checkImmichKey,
+    /** A key typed (or removed): the albums and the photos come again with it. */
+    immichChanged: function () { albums = []; photoFailedAt = 0; loadAlbums(); refreshPhotos(); changed(); },
+    immichAlbums: function () { loadAlbums(); return albums; },
+    immichPhotos: immichPhotos,
     hasKey: function () { return !!KEY; },
     checkKey: checkKey,
     /** A key typed (or removed) on the TV: the picks come again with it, or go. */

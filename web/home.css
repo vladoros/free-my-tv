@@ -125,6 +125,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   transition: color 2s;
 }
 
+/* Wi-Fi or Ethernet after the title, on the line of the round buttons (home.js sets its left). */
+#status { position: absolute; top: 88px; height: 30px; color: rgba(29, 29, 31, 0.85); -webkit-transition: color 2s; transition: color 2s; }
+#status .sym { width: 30px; height: 30px; }
+.night #status { color: rgba(245, 245, 247, 0.85); }
+
 #tabs { position: absolute; left: 54px; top: 158px; height: 68px; white-space: nowrap; }
 .tab {
   position: relative;
@@ -996,18 +1001,18 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* Font (Home Settings): the clock, the apps' names and the buttons, and the screensaver's clock, in Manrope, Geist or Newsreader
    (a serif); Settings and the sheets stay Inter. Only the clock changes its weight and spacing. */
-.clock-manrope #clock, .clock-manrope #saver .clock .time, .clock-manrope .tile, .clock-manrope .round {
+.clock-manrope #clock, .clock-manrope #saver .clock .time, .clock-manrope #ambient .clock, .clock-manrope .tile, .clock-manrope .round {
   font-family: 'Manrope', 'Inter', 'Helvetica Neue', Arial, sans-serif;
 }
-.clock-geist #clock, .clock-geist #saver .clock .time, .clock-geist .tile, .clock-geist .round {
+.clock-geist #clock, .clock-geist #saver .clock .time, .clock-geist #ambient .clock, .clock-geist .tile, .clock-geist .round {
   font-family: 'Geist', 'Inter', 'Helvetica Neue', Arial, sans-serif;
 }
-.clock-newsreader #clock, .clock-newsreader #saver .clock .time, .clock-newsreader .tile, .clock-newsreader .round {
+.clock-newsreader #clock, .clock-newsreader #saver .clock .time, .clock-newsreader #ambient .clock, .clock-newsreader .tile, .clock-newsreader .round {
   font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
 }
-.clock-manrope #clock, .clock-manrope #saver .clock .time { font-weight: 600; letter-spacing: -0.03em; }
-.clock-geist #clock, .clock-geist #saver .clock .time { font-weight: 500; letter-spacing: -0.03em; }
-.clock-newsreader #clock, .clock-newsreader #saver .clock .time { font-weight: 400; letter-spacing: -0.01em; }
+.clock-manrope #clock, .clock-manrope #saver .clock .time, .clock-manrope #ambient .clock { font-weight: 600; letter-spacing: -0.03em; }
+.clock-geist #clock, .clock-geist #saver .clock .time, .clock-geist #ambient .clock { font-weight: 500; letter-spacing: -0.03em; }
+.clock-newsreader #clock, .clock-newsreader #saver .clock .time, .clock-newsreader #ambient .clock { font-weight: 400; letter-spacing: -0.01em; }
 
 /* List: the rows fade out where the list goes on above or below. */
 #tilesview { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
