@@ -1141,7 +1141,7 @@
     var sv = Data.services();
     if (sv.length) {
       var someOff = false;   // only the services this TV has count
-      for (var q = 0; q < sv.length; q++) someOff = someOff || Prefs.serviceOff(sv[q].key);
+      for (var q = 0; q < sv.length; q++) someOff = someOff || (!Prefs.byName(sv[q].key) && Prefs.serviceOff(sv[q].key));   // one found by name starts off
       rows.push({label: tr('Picks from'), value: someOff ? tr('services|Some') : tr('services|All'),
         step: function () { Prefs.set('servicesOff', []); Data.settingsChanged(); }});
       for (var j = 0; j < sv.length; j++) {

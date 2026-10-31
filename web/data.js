@@ -148,12 +148,17 @@ var Prefs = (function () {
     tmdbKeyOnTV: function () { return v.tmdbKey !== undefined; },
     setCity: function (name, lat, lon) { v.city = name; v.latitude = lat; v.longitude = lon; save(); this.version++; },
     /** Streaming services (keys like "netflix") whose titles are left out of the picks. */
-    serviceOff: function (key) { return pick('servicesOff', []).indexOf(key) >= 0; },
-    setServiceOff: function (key, off) {
-      var list = pick('servicesOff', []).filter(function (k) { return k !== key; });
-      if (off) list.push(key);
-      this.set('servicesOff', list);
+    serviceOff: function (key) {
+      return this.byName(key) ? pick('servicesOn', []).indexOf(key) < 0 : pick('servicesOff', []).indexOf(key) >= 0;
     },
+    setServiceOff: function (key, off) {
+      var name = this.byName(key) ? 'servicesOn' : 'servicesOff';
+      var list = pick(name, []).filter(function (k) { return k !== key; });
+      if (this.byName(key) ? !off : off) list.push(key);
+      this.set(name, list);
+    },
+    /** A service found by its app's name is keyed 'app:<id>', and is off until switched on. */
+    byName: function (key) { return String(key).indexOf('app:') === 0; },
     openPicks: function () { return pick('openPicks', CONFIG.openPicksIn === 'nuvio' ? 'nuvio' : 'apps'); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
@@ -560,18 +565,45 @@ var Data = (function () {
 
   var installed = [];   // the TV's apps, from TV.apps()
 
+  /**
+   * Services SERVICES doesn't know, found by name: a TMDB service in REGION named like an app on the TV ("Oldflix"), as
+   * SERVICES rows [plain TMDB name, 'app:<id>', null, null, the app's name], from the last list. They start off in Picks from.
+   */
+  var byName = stored('byName') || [];
+
+  /** Not by name: Plex's TMDB entry is its free catalogue, not the person's library; YouTube would join on almost every TV. */
+  var NOT_BY_NAME = /^(plex|youtube)$/;
+
+  /** "Oldflix" and "OLDFLIX", "Claro video" and "Claro Vídeo": compared without case, accents or punctuation. */
+  function plain(name) {
+    var n = String(name || '');
+    if (n.normalize) n = n.normalize('NFKD');   // not on Tizen 2
+    return n.toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/\+/g, ' plus')
+        .replace(/[\u0000-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u00bf]+/g, ' ').replace(/^ +| +$/g, '');
+  }
+
+  function knownApp(app) {
+    for (var s = 0; s < SERVICES.length; s++) if (SERVICES[s][2].test(app.id) || SERVICES[s][3].test(app.title)) return true;
+    return false;
+  }
+
   /** A service whose app is on the TV and that the person hasn't switched off in Home Settings (Picks from). */
   function usable(key) { return !!appFor(key) && !Prefs.serviceOff(key); }
 
   /** The streaming services whose app is on this TV, as {key, name}, for Home Settings. */
   function services() {
     var out = [];
-    for (var s = 0; s < SERVICES.length; s++) if (appFor(SERVICES[s][1])) out.push({key: SERVICES[s][1], name: SERVICES[s][4]});
+    var rows = SERVICES.concat(byName);
+    for (var s = 0; s < rows.length; s++) if (appFor(rows[s][1])) out.push({key: rows[s][1], name: rows[s][4]});
     return out;
   }
 
   /** The installed app for a service key, or null. */
   function appFor(key) {
+    if (Prefs.byName(key)) {
+      for (var b = 0; b < installed.length; b++) if ('app:' + installed[b].id === key) return installed[b];
+      return null;
+    }
     for (var s = 0; s < SERVICES.length; s++) {
       if (SERVICES[s][1] !== key) continue;
       for (var i = 0; i < installed.length; i++) {
@@ -582,7 +614,7 @@ var Data = (function () {
   }
 
   /** "… Amazon Channel" is sold inside another app; Apple TV is only the streaming service (350; 2 is the store). */
-  function service(providerName, providerId) {
+  function builtin(providerName, providerId) {
     var n = (providerName || '').toLowerCase();
     if (n.indexOf(' channel') >= 0) return null;
     for (var i = 0; i < SERVICES.length; i++) {
@@ -591,6 +623,46 @@ var Data = (function () {
       if (s[0] === 'max' ? /\bmax\b/.test(n) : n.indexOf(s[0]) >= 0) return s;
     }
     return null;
+  }
+
+  /** The service for a TMDB provider: one SERVICES knows, else one found by name in the last list. */
+  function service(providerName, providerId) {
+    var s = builtin(providerName, providerId);
+    if (s || (providerName || '').toLowerCase().indexOf(' channel') >= 0) return s;
+    for (var i = 0; i < byName.length; i++) if (byName[i][0] === plain(providerName)) return byName[i];
+    return null;
+  }
+
+  var titlesKnown = {}, titlesAt = 0;   // hasTitles' answers for a day, by provider: a TV without the known services lists again often
+
+  /**
+   * Whether a title's own list has the service by subscription. /discover alone can't say: it matches the service and
+   * the type separately, so a store that only rents a title also comes back when someone else streams it.
+   */
+  function hasTitles(provider, done) {
+    var now = Date.now();
+    if (now - titlesAt > 864e5 || now < titlesAt) { titlesKnown = {}; titlesAt = now; }
+    if (titlesKnown[provider] !== undefined) { done(titlesKnown[provider]); return; }
+    var found = false, failed = false;
+    each(['movie', 'tv'], function (kind, next) {
+      if (found || failed) { next(); return; }
+      tmdb('/discover/' + kind + '?language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate'
+          + '&include_adult=false&sort_by=popularity.desc&with_watch_providers=' + provider, function (err, r) {
+        if (err || !r || !r.results) { failed = true; next(); return; }
+        each(r.results.slice(0, 5), function (t, n) {
+          if (found || failed) { n(); return; }
+          tmdb('/' + kind + '/' + t.id + '/watch/providers?language=' + lang(), function (e, w) {
+            var here = !e && w && w.results && w.results[REGION], flat = here && here.flatrate;
+            if (e) failed = true;
+            for (var j = 0; flat && j < flat.length; j++) if (flat[j].provider_id === provider) found = true;
+            n();
+          });
+        }, next);
+      });
+    }, function () {
+      if (found || !failed) titlesKnown[provider] = found;   // an error isn't kept: the next list asks again
+      done(found);
+    });
   }
 
   function tmdb(path, done, key) {
@@ -938,6 +1010,8 @@ var Data = (function () {
   function sourceStamp() {
     var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (Prefs.hideAnimation() ? ':no-animation' : '');
     for (var i = 0; i < SERVICES.length; i++) s += usable(SERVICES[i][1]) ? '1' : '0';
+    // Switched on, one found by name counts; off, finding it changes nothing, so nothing is fetched again.
+    for (var b = 0; b < byName.length; b++) if (usable(byName[b][1])) s += ':' + byName[b][1];
     return s + (traktSignedIn() ? ':trakt ' + trakt.user : '');
   }
 
@@ -1149,50 +1223,74 @@ var Data = (function () {
     var watched = lists ? lists.watched : {};
     tmdb('/watch/providers/movie?language=' + lang() + '&watch_region=' + REGION, function (err, res) {
       if (err) { done(err); return; }
-      var ids = [];
-      for (var i = 0; res.results && i < res.results.length; i++) {
-        var s = service(res.results[i].provider_name, res.results[i].provider_id);
-        if (s && usable(s[1])) ids.push(res.results[i].provider_id);
+      var ids = [], found = [], candidates = [], apps = {};
+      // The TV's other apps by name: a service SERVICES doesn't know is theirs when the names are the same.
+      for (var a = 0; a < installed.length; a++) {
+        var label = plain(installed[a].title);
+        if (label && !NOT_BY_NAME.test(label) && !knownApp(installed[a])) apps[label] = installed[a];
       }
-      if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB (or switched on in Picks from)")); return; }
-      var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
-          + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
-          + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
-      var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
-      each(['movie', 'tv'], function (kind, next) {
-        tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
-          var candidates = [];
-          for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
-          // Trending is only kept when it's on one of the TV's apps: the details say where.
-          each(candidates, function (p, n) {
-            if (watched[keyOf(p)]) { n(); return; }
-            details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
-          }, next);
+      for (var i = 0; res.results && i < res.results.length; i++) {
+        var r0 = res.results[i], s = builtin(r0.provider_name, r0.provider_id);
+        if (s) { if (usable(s[1])) ids.push(r0.provider_id); }
+        else if (apps[plain(r0.provider_name)]) candidates.push({id: r0.provider_id, name: r0.provider_name, app: apps[plain(r0.provider_name)]});
+      }
+      each(candidates, function (c, next) {
+        // A name that only rents or buys waits until it has titles.
+        hasTitles(c.id, function (yes) {
+          if (yes) {
+            var row = [plain(c.name), 'app:' + c.app.id, null, null, c.app.title];
+            found.push(row);
+            if (!Prefs.serviceOff(row[1])) ids.push(c.id);   // one found just now starts off
+          }
+          next();
         });
       }, function () {
-        tmdb('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (e1, r1) {
-          for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
-          tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
-            for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
-            function unwatched(p) { return !watched[keyOf(p)]; }
-            fresh.movie = fresh.movie.filter(unwatched);
-            fresh.tv = fresh.tv.filter(unwatched);
-            traktPicks(lists, function (mine) {
-              // Trakt's (in progress, the watchlist, the recommendations), then trending and the new releases; movies and
-              // shows alternating, without repeats.
-              var list = [], seen = {}, i;
-              for (i = 0; i < mine.progress.length; i++) {
-                if (!seen[keyOf(mine.progress[i])]) { seen[keyOf(mine.progress[i])] = true; list.push(mine.progress[i]); }
-              }
-              alternate(list, seen, mine.watchlist.movie, mine.watchlist.tv, TRAKT_MAX);
-              alternate(list, seen, mine.recommended.movie, mine.recommended.tv, TRAKT_MAX);
-              var ours = list.length;
-              alternate(list, seen, hot.movie, hot.tv, ours + 24);
-              alternate(list, seen, fresh.movie, fresh.tv, ours + 24);
-              if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
-              picks = list;
-              done(null);
-            });
+        byName = found;
+        store('byName', found);
+        if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB (or switched on in Picks from)")); return; }
+        fetchWith(ids, watched, lists, done);
+      });
+    });
+  }
+
+  function fetchWith(ids, watched, lists, done) {
+    var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
+        + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
+        + (Prefs.hideAnimation() ? '&without_genres=' + ANIMATION : '');
+    var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
+    each(['movie', 'tv'], function (kind, next) {
+      tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
+        var candidates = [];
+        for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
+        // Trending is only kept when it's on one of the TV's apps: the details say where.
+        each(candidates, function (p, n) {
+          if (watched[keyOf(p)]) { n(); return; }
+          details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
+        }, next);
+      });
+    }, function () {
+      tmdb('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (e1, r1) {
+        for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
+        tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
+          for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
+          function unwatched(p) { return !watched[keyOf(p)]; }
+          fresh.movie = fresh.movie.filter(unwatched);
+          fresh.tv = fresh.tv.filter(unwatched);
+          traktPicks(lists, function (mine) {
+            // Trakt's (in progress, the watchlist, the recommendations), then trending and the new releases; movies and
+            // shows alternating, without repeats.
+            var list = [], seen = {}, i;
+            for (i = 0; i < mine.progress.length; i++) {
+              if (!seen[keyOf(mine.progress[i])]) { seen[keyOf(mine.progress[i])] = true; list.push(mine.progress[i]); }
+            }
+            alternate(list, seen, mine.watchlist.movie, mine.watchlist.tv, TRAKT_MAX);
+            alternate(list, seen, mine.recommended.movie, mine.recommended.tv, TRAKT_MAX);
+            var ours = list.length;
+            alternate(list, seen, hot.movie, hot.tv, ours + 24);
+            alternate(list, seen, fresh.movie, fresh.tv, ours + 24);
+            if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
+            picks = list;
+            done(null);
           });
         });
       });

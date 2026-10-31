@@ -584,6 +584,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   The picks come only from the apps on the shelf (`Data.setApps(shelf)`), each service fetched on its own so every app has a share;
   Plex and YouTube are `SERVICES` entries flagged free-with-ads (their free titles count, with no release window). The web app
   has no title links: Netflix on Tizen 5 ignored the `PAYLOAD` meta tag and a search address, so a pick opens its app's home.
+  A TMDB service in the region that `SERVICES` doesn't know joins when its plain name (`plain()`: no case, accents or
+  punctuation) equals an app's on the TV and a title's own list has it by subscription (`hasTitles`, cached a day):
+  keyed `app:<id>`, off until switched on in Picks from (`Prefs.byName`, `servicesOn`), as on Android; Plex and YouTube never.
   OK and Back act once per press (`held` in `home.js`, cleared when the app is left: launching an app swallows the key's release).
   On Samsung, Back on the first screen opens a Stay / Samsung Home sheet only where `getAppInfo('com.samsung.tv.csfs')` answers. Text: the same catalogues as Android, packed into `i18n.js` by `tools/webapp.py` (only
   the keys `web/` uses): `tr('Live TV')`, `trf('{n} min ago', {n: 12})`, `plural('plural|…', n)` and
