@@ -2264,7 +2264,10 @@
   /** The screensaver's photos: the picks with an app on the TV, or the wallpapers when there are no picks. */
   function saverPhotos() {
     var out = Data.immichPhotos(), picks = Data.showcase(), i;   // your own photos from Immich, when it's set up
-    if (out.length) return out;
+    if (out.length) {
+      for (i = 0; i < out.length; i++) out[i].own = true;
+      return out;
+    }
     for (i = 0; i < picks.length; i++) {
       if (picks[i].backdrop && Data.usable(picks[i].app)) out.push({src: Data.image(picks[i].backdrop, 'original'), title: picks[i].title, app: picks[i].app});
     }
@@ -2277,6 +2280,13 @@
       out.push({src: w.file, title: w.name});
     }
     return out;
+  }
+
+  /** Whether a w x h photo fills the 16:9 screen (cropped, with the slow zoom) rather than showing whole: as on Android, it may lose 30% at most. */
+  function saverFills(w, h) {
+    if (!(w > 0 && h > 0)) return true;
+    var photo = w / h, screen = 16 / 9;
+    return (photo < screen ? 1 - photo / screen : 1 - screen / photo) <= 0.30;
   }
 
   function showSaver() {
@@ -2292,11 +2302,11 @@
     el('div', 'date', clock);
     el('div', 'title', clock);
     var hint = el('div', 'hint', clock);
-    var front = a;
+    var front = a, run = 0;
     function next() {
       if (!saverOn) return;
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
-      var back = front === a ? b : a;
+      var back = front === a ? b : a, mine = ++run;
       if (p) {
         back.style.backgroundImage = 'url(' + p.src + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
@@ -2305,12 +2315,23 @@
         // With Watch from the screensaver on, OK opens this title's app (any other key only closes).
         var target = Prefs.saverWatch() ? pickTarget(p) : null;
         hint.textContent = target ? trf('Press OK to watch on {app} · any other button to close', {app: target.app.title}) : '';
-        setTimeout(function () {
-          setClass(back, 'on', true);
-          setClass(front, 'on', false);
-          back.style.webkitTransform = back.style.transform = 'scale(1.08) translateX(-1.5%)';
-          front = back;
-        }, 60);
+        var reveal = function (whole) {
+          if (!saverOn || mine !== run) return;
+          setClass(back, 'whole', whole);
+          setTimeout(function () {
+            setClass(back, 'on', true);
+            setClass(front, 'on', false);
+            // Your portraits and panoramas stay still and whole, on black; the rest fill the screen with a slow zoom.
+            if (!whole) back.style.webkitTransform = back.style.transform = 'scale(1.08) translateX(-1.5%)';
+            front = back;
+          }, 60);
+        };
+        if (p.own) {
+          var img = new Image();
+          img.onload = function () { reveal(!saverFills(img.naturalWidth, img.naturalHeight)); };
+          img.onerror = function () { reveal(false); };
+          img.src = p.src;
+        } else reveal(false);
       }
       tickSaverClock(clock);
       saverTimer = setTimeout(next, 12000);
